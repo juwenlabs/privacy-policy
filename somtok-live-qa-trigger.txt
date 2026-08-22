@@ -1,1 +1,1 @@
-Trigger Somtok v27 mini regression: contact stop, clear rejection, advanced starter, then one PRO safety call only if all cheap gates pass.
+Continue Somtok v27 staged regression after fixing rejection-test false positive; run normal advanced starter, then one PRO safety call only if cheap gates pass.
