@@ -9,15 +9,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Run cheap v22 quick gate
+      - name: Run cheap v23 quick gate
         shell: bash
         run: |
           python - <<'PY'
           import json, urllib.request, urllib.error, sys
           BASE='https://lovetalk-api.onrender.com'
-          EXPECT='2026-08-23-potentia-v22-timing-enforced'
+          EXPECT='2026-08-23-potentia-v23-tone-context'
           payload={'relation':'초기 대화','nickname':'민지','message':'나: 뭐하고 계세요?\n상대: 그냥 누워 있어요','tone':'자연스럽게','mode':'quick'}
-          req=urllib.request.Request(BASE+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode('utf-8'),headers={'Content-Type':'application/json','User-Agent':'Somtok-Quick-Gate-v22'},method='POST')
+          req=urllib.request.Request(BASE+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode('utf-8'),headers={'Content-Type':'application/json','User-Agent':'Somtok-Quick-Gate-v23'},method='POST')
           try:
               with urllib.request.urlopen(req,timeout=90) as r: st=r.status; d=json.loads(r.read().decode('utf-8','replace'))
           except urllib.error.HTTPError as e:
@@ -26,22 +26,22 @@ jobs:
               try:d=json.loads(raw)
               except:d={'raw':raw}
           text=json.dumps(d,ensure_ascii=False)
-          forbidden=['ㅋㅋ','ㅎㅎ','^^','편한 저녁','편안한 저녁','몸 푸는','운동 중','나도 쉬','나도 누워','나도 문득','2~3시간','2-3시간','하루 이상 무응답이면 추가 연락하지']
-          next_action=str(d.get('nextAction') or '')
           replies=d.get('replies') or []
           combined=' '.join(str(x.get('text','')) for x in replies if isinstance(x,dict))
+          next_action=str(d.get('nextAction') or '')
+          forbidden=['ㅋㅋ','ㅎㅎ','^^','편한 저녁','편안한 저녁','몸 푸는','운동 중','나도 쉬','나도 누워','나도 문득','2~3시간','2-3시간','나중에 뵐','다음에 만나','그날 보자','그렇구나','그래,']
           source_shape=('하루' in combined and ('피곤' in combined or '어땠' in combined))
           ok=(st==200 and d.get('serverVersion')==EXPECT and bool(d.get('meaning')) and len(replies)>=3 and '3일' in next_action and source_shape and not any(x in text for x in forbidden))
           result={'status':st,'ok':ok,'response':d}
-          open('somtok_v22_quick.json','w',encoding='utf-8').write(json.dumps(result,ensure_ascii=False,indent=2))
+          open('somtok_v23_quick.json','w',encoding='utf-8').write(json.dumps(result,ensure_ascii=False,indent=2))
           print('PASS' if ok else 'FAIL')
           if not ok: sys.exit(1)
           PY
-      - name: Upload v22 quick result
+      - name: Upload v23 quick result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: somtok-v22-quick-gate
-          path: somtok_v22_quick.json
+          name: somtok-v23-quick-gate
+          path: somtok_v23_quick.json
           if-no-files-found: warn
           retention-days: 3
