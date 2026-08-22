@@ -9,16 +9,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Run final two v20 cases
+      - name: Run final two v21 cases
         shell: bash
         run: |
           python - <<'PY'
           import json, urllib.request, urllib.error, sys
           BASE='https://lovetalk-api.onrender.com'
-          EXPECT='2026-08-23-potentia-v20-manual-aligned'
+          EXPECT='2026-08-23-potentia-v21-source-aligned'
           out=[]
           def post(payload,timeout=120):
-              req=urllib.request.Request(BASE+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode('utf-8'),headers={'Content-Type':'application/json','User-Agent':'Somtok-Final-QA-v20'},method='POST')
+              req=urllib.request.Request(BASE+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode('utf-8'),headers={'Content-Type':'application/json','User-Agent':'Somtok-Final-QA-v21'},method='POST')
               try:
                   with urllib.request.urlopen(req,timeout=timeout) as r: return r.status,json.loads(r.read().decode('utf-8','replace'))
               except urllib.error.HTTPError as e:
@@ -27,31 +27,33 @@ jobs:
                   except:d={'raw':raw}
                   return e.code,d
 
+          # Source case: one short answer should stay uncertain, avoid invented time/activity, and preserve ~3-day no-reply rule.
           st,d=post({'relation':'초기 대화','nickname':'민지','message':'나: 뭐하고 계세요?\n상대: 그냥 누워 있어요','tone':'자연스럽게','mode':'quick'})
           text=json.dumps(d,ensure_ascii=False)
-          reps=' '.join(x.get('text','') for x in (d.get('replies') or []) if isinstance(x,dict))
-          forbidden=['ㅋㅋ','ㅎㅎ','^^','나도 쉬','나도 누워','나도 문득','나도 생각','편하게 쉬','편안한 저녁','피곤하셨','2~3시간','2-3시간','하루 이상 무응답이면 추가 연락하지']
-          ok1=(st==200 and d.get('serverVersion')==EXPECT and bool(d.get('meaning')) and len(d.get('replies') or [])>=3 and not any(x in text for x in forbidden))
-          out.append({'id':1,'title':'초기 짧은 답장 사실/무응답 기준','status':st,'ok':ok1,'reply_texts':reps,'response':d})
+          forbidden=['ㅋㅋ','ㅎㅎ','^^','편한 저녁','편안한 저녁','몸 푸는','운동 중','나도 쉬','나도 누워','나도 문득','2~3시간','2-3시간','하루 이상 무응답이면 추가 연락하지']
+          next_action=str(d.get('nextAction') or '')
+          ok1=(st==200 and d.get('serverVersion')==EXPECT and bool(d.get('meaning')) and len(d.get('replies') or [])>=3 and '3일' in next_action and not any(x in text for x in forbidden))
+          out.append({'id':1,'title':'매뉴얼 케이스-그냥 누워 있어요','status':st,'ok':ok1,'response':d})
           print(('PASS' if ok1 else 'FAIL'),1)
           if not ok1:
-              open('somtok_v20_results.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2));sys.exit(2)
+              open('somtok_v21_results.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2));sys.exit(2)
 
+          # PRO detail: use only supplied participation facts; no invented shared places/user states; complete clean result.
           st,d=post({'relation':'썸','nickname':'민지','message':'[PRO 고백 타이밍] 두 번 단둘이 만났고 상대도 먼저 연락을 3번 했고 다음 만남 날짜를 먼저 제안했다. 서로 질문과 자기 이야기가 많다. 확인된 사실, 참여, 과투자를 먼저 보고 고백 타이밍을 분석해줘.','tone':'차분하고 현실적으로','mode':'detail','advanced':True})
           text=json.dumps(d,ensure_ascii=False)
-          forbidden2=['[[lengthRule]]','[[done]]','[[meaning]]','그때 얘기했던 데','아까 말한 카페','전에 말한 전시','초반 어색함 없이','중간 정도','중간~높음','낮음~중간']
+          forbidden2=['[[lengthRule]]','[[done]]','[[meaning]]','그때 얘기했던 데','아까 말한 카페','전에 말한 전시','초반 어색함 없이','몸 푸는','생각 중이야','가보고 싶','중간 정도','중간~높음','낮음~중간']
           complete=(st==200 and d.get('serverVersion')==EXPECT and bool(d.get('meaning')) and bool(d.get('flow')) and bool(d.get('strategy')) and bool(d.get('nextAction')) and len(d.get('replies') or [])>=3 and len(str(d.get('nextAction')).strip())>20)
           ok2=complete and not any(x in text for x in forbidden2)
-          out.append({'id':2,'title':'PRO 상세분석 사실기반/완결/확신도','status':st,'ok':ok2,'response':d})
+          out.append({'id':2,'title':'PRO 고백 타이밍 사실기반','status':st,'ok':ok2,'response':d})
           print(('PASS' if ok2 else 'FAIL'),2)
-          open('somtok_v20_results.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
+          open('somtok_v21_results.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
           if not ok2: sys.exit(1)
           PY
-      - name: Upload v20 results
+      - name: Upload v21 results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: somtok-v20-final-qa
-          path: somtok_v20_results.json
+          name: somtok-v21-final-qa
+          path: somtok_v21_results.json
           if-no-files-found: warn
           retention-days: 3
