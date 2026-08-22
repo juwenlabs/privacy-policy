@@ -1,1 +1,1 @@
-Trigger staged Somtok v25 no-reply gate then PRO detail verification.
+Trigger staged Somtok v26 cheap no-reply gate then one PRO detail verification.
