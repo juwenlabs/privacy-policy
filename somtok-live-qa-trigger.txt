@@ -1,1 +1,1 @@
-Trigger staged Somtok v26 cheap no-reply gate then one PRO detail verification.
+Trigger Somtok v27 actual SSE app path gate, then one PRO detail call only if it passes.
