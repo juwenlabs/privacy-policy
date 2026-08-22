@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Run final two v17 cases
+      - name: Run final two v19 cases
         shell: bash
         run: |
           python - <<'PY'
@@ -17,7 +17,7 @@ jobs:
           BASE='https://lovetalk-api.onrender.com'
           out=[]
           def post(payload,timeout=120):
-              req=urllib.request.Request(BASE+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode('utf-8'),headers={'Content-Type':'application/json'},method='POST')
+              req=urllib.request.Request(BASE+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode('utf-8'),headers={'Content-Type':'application/json','User-Agent':'Somtok-Final-QA-v19'},method='POST')
               try:
                   with urllib.request.urlopen(req,timeout=timeout) as r: return r.status,json.loads(r.read().decode('utf-8','replace'))
               except urllib.error.HTTPError as e:
@@ -25,28 +25,33 @@ jobs:
                   try:d=json.loads(raw)
                   except:d={'raw':raw}
                   return e.code,d
+
+          # 1) A single short answer must not cause invented first-person stories or unsupported laughter markers.
           st,d=post({'relation':'초기 대화','nickname':'민지','message':'나: 뭐하고 계세요?\n상대: 그냥 누워 있어요','tone':'자연스럽게','mode':'quick'})
           reps=' '.join(x.get('text','') for x in (d.get('replies') or []) if isinstance(x,dict))
-          ok1=st==200 and bool(d.get('meaning')) and 'ㅋㅋ' not in reps and 'ㅎㅎ' not in reps and '^^' not in reps
-          out.append({'id':1,'title':'초기 짧은 답장 기호 절제','status':st,'ok':ok1,'response':d})
+          forbidden=['ㅋㅋ','ㅎㅎ','^^','나도 쉬','나도 누워','나도 문득','나도 생각','나도 오늘']
+          ok1=(st==200 and d.get('serverVersion')=='2026-08-23-potentia-v19-final-grounding' and bool(d.get('meaning')) and len(d.get('replies') or [])>=3 and not any(x in reps for x in forbidden))
+          out.append({'id':1,'title':'초기 짧은 답장 사실기반/기호절제','status':st,'ok':ok1,'reply_texts':reps,'response':d})
           print(('PASS' if ok1 else 'FAIL'),1)
           if not ok1:
-              open('somtok_v17_results.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2));sys.exit(2)
+              open('somtok_v19_results.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2));sys.exit(2)
+
+          # 2) Detail mode must finish completely and never leak internal section/control markers.
           st,d=post({'relation':'썸','nickname':'민지','message':'[PRO 고백 타이밍] 두 번 단둘이 만났고 상대도 먼저 연락을 3번 했고 다음 만남 날짜를 먼저 제안했다. 서로 질문과 자기 이야기가 많다. 확인된 사실, 참여, 과투자를 먼저 보고 고백 타이밍을 분석해줘.','tone':'차분하고 현실적으로','mode':'detail','advanced':True})
           text=json.dumps(d,ensure_ascii=False)
-          bad=any(x in text for x in ['판단 확신도는 중간~높음','판단 확신도: 중간~높음','확신도는 낮음~중간','확신도는 높음~','호감 중간~높음','호감 가능성은 중간~높음'])
-          complete=st==200 and bool(d.get('meaning')) and bool(d.get('nextAction')) and len(str(d.get('nextAction')).strip())>20
-          ok2=complete and not bad
-          out.append({'id':2,'title':'PRO 확신도 단일단계+완결','status':st,'ok':ok2,'response':d})
+          no_internal=('[[lengthRule]]' not in text and '[[done]]' not in text and '[[meaning]]' not in text)
+          complete=(st==200 and d.get('serverVersion')=='2026-08-23-potentia-v19-final-grounding' and bool(d.get('meaning')) and bool(d.get('flow')) and bool(d.get('strategy')) and bool(d.get('nextAction')) and len(d.get('replies') or [])>=3 and len(str(d.get('nextAction')).strip())>20)
+          ok2=complete and no_internal
+          out.append({'id':2,'title':'PRO 상세분석 완결/내부표식 제거','status':st,'ok':ok2,'response':d})
           print(('PASS' if ok2 else 'FAIL'),2)
-          open('somtok_v17_results.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
+          open('somtok_v19_results.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
           if not ok2: sys.exit(1)
           PY
-      - name: Upload v17 results
+      - name: Upload v19 results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: somtok-v17-final-qa
-          path: somtok_v17_results.json
+          name: somtok-v19-final-qa
+          path: somtok_v19_results.json
           if-no-files-found: warn
           retention-days: 3
