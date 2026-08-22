@@ -1,1 +1,1 @@
-Trigger cheap Somtok v25 quick gate before PRO detail test.
+Trigger staged Somtok v25 no-reply gate then PRO detail verification.
