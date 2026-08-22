@@ -9,60 +9,87 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Run staged v26 final QA
+      - name: Run v27 actual app-path QA
         shell: bash
         run: |
           python - <<'PY'
           import json, urllib.request, urllib.error, sys, time
           BASE='https://lovetalk-api.onrender.com'
-          EXPECT='2026-08-23-potentia-v26-final'
+          EXPECT='2026-08-23-potentia-v27-unified-guards'
           out=[]
-          def post(payload,timeout=120):
-              req=urllib.request.Request(BASE+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode('utf-8'),headers={'Content-Type':'application/json','User-Agent':'Somtok-Staged-Final-v26'},method='POST')
+          def save():
+              open('somtok_v27_app_path.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
+          def post_json(path,payload,timeout=150):
+              req=urllib.request.Request(BASE+path,data=json.dumps(payload,ensure_ascii=False).encode('utf-8'),headers={'Content-Type':'application/json','User-Agent':'Somtok-v27-AppPath'},method='POST')
               try:
-                  with urllib.request.urlopen(req,timeout=timeout) as r:
-                      return r.status,json.loads(r.read().decode('utf-8','replace'))
+                  with urllib.request.urlopen(req,timeout=timeout) as r:return r.status,json.loads(r.read().decode('utf-8','replace'))
               except urllib.error.HTTPError as e:
                   raw=e.read().decode('utf-8','replace')
                   try:d=json.loads(raw)
                   except:d={'raw':raw}
                   return e.code,d
-          def save():
-              open('somtok_v26_final.json','w',encoding='utf-8').write(json.dumps(out,ensure_ascii=False,indent=2))
+          def post_sse(path,payload,timeout=120):
+              req=urllib.request.Request(BASE+path,data=json.dumps(payload,ensure_ascii=False).encode('utf-8'),headers={'Content-Type':'application/json','User-Agent':'Somtok-v27-AppPath-SSE'},method='POST')
+              try:
+                  with urllib.request.urlopen(req,timeout=timeout) as r:
+                      raw=r.read().decode('utf-8','replace'); status=r.status
+              except urllib.error.HTTPError as e:
+                  return e.code,{},e.read().decode('utf-8','replace')
+              latest={'replies':[]}; version=''
+              for block in raw.split('\n\n'):
+                  ev=''; data=None
+                  for line in block.splitlines():
+                      if line.startswith('event:'):ev=line[6:].strip()
+                      elif line.startswith('data:'):
+                          try:data=json.loads(line[5:].strip())
+                          except:pass
+                  if ev=='section' and isinstance(data,dict):
+                      name=data.get('name'); value=data.get('value')
+                      if str(name).startswith('reply'):
+                          idx=int(str(name).replace('reply','') or '1')-1
+                          while len(latest['replies'])<=idx: latest['replies'].append(None)
+                          latest['replies'][idx]=value
+                      elif name: latest[name]=value
+                  elif ev=='done' and isinstance(data,dict): version=data.get('serverVersion','')
+                  elif ev=='error': latest['streamError']=data
+              latest['replies']=[x for x in latest['replies'] if x]
+              latest['serverVersion']=version
+              return status,latest,raw
 
-          # Cheap gate first. User has ALREADY waited about 3 days and has not sent a follow-up.
+          # 1) ACTUAL APP PATH: quick analysis uses SSE.
           p1={'relation':'초기 대화','nickname':'민지','message':'내가 3일 전에 “오늘 하루 어땠어요?”라고 보냈고 아직 답이 없습니다. 후속 메시지는 아직 한 번도 보내지 않았고 비긴급 상황입니다. 지금 어떻게 해야 하나요?','tone':'자연스럽게','mode':'quick','selectedSituation':'읽씹 당했어'}
-          st,d=post(p1,90)
+          st,d,raw=post_sse('/api/love-analysis-stream',p1,120)
           text=json.dumps(d,ensure_ascii=False)
-          replies=d.get('replies') or []
-          reps=' '.join(str(x.get('text','')) for x in replies if isinstance(x,dict))
-          timing=' '.join([str(d.get('meaning') or ''),str(d.get('advice') or ''),str(d.get('nextAction') or ''),reps])
-          bad=['왜 답','왜 읽고','서운해','스토리 봤','다른 계정','전화해','계속 보내','3일 더 기다','다시 3일','또 3일','두 번째 후속','세 번째 후속']
-          low_pressure=any(x in reps for x in ['편하게 연락','여유 생기면','일정 여유','바쁜 것 같'])
-          once=('한 번' in timing or '한번' in timing)
-          stop_after=('다시 무응답' in timing or '추가' in timing or '더 보내지' in timing or '멈' in timing or '종료' in timing)
-          ok1=(st==200 and d.get('serverVersion')==EXPECT and bool(d.get('meaning')) and bool(d.get('nextAction')) and len(replies)>=3 and once and low_pressure and stop_after and not any(x in text for x in bad))
-          out.append({'id':1,'title':'3일 비긴급 무응답-지금 한 번 확인 후 종료 규칙','status':st,'ok':ok1,'response':d})
-          save(); print(('PASS' if ok1 else 'FAIL'),1)
-          if not ok1: sys.exit(2)
+          reps=' '.join(str(x.get('text','')) for x in (d.get('replies') or []) if isinstance(x,dict))
+          advice=str(d.get('advice') or ''); action=str(d.get('nextAction') or '')
+          bad=['3일 더','총 약 6일','다시 3일','또 3일','왜 답','왜 읽고','서운해','전화해','다른 계정']
+          now_once=(('지금' in advice or '지금' in action) and ('한 번' in advice+action or '한번' in advice+action))
+          low_pressure=any(x in reps for x in ['편하게 연락','여유 생기면','일정 여유'])
+          stop_after=any(x in action for x in ['추가','멈','종료','두 번째 후속'])
+          ok1=(st==200 and d.get('serverVersion')==EXPECT and bool(d.get('meaning')) and len(d.get('replies') or [])>=3 and now_once and low_pressure and stop_after and not any(x in text for x in bad) and not d.get('streamError'))
+          out.append({'id':1,'title':'실제 앱 SSE-3일 무응답 지금 1회 확인','status':st,'ok':ok1,'response':d})
+          save();print(('PASS' if ok1 else 'FAIL'),1)
+          if not ok1:sys.exit(2)
 
-          # Only after the cheap gate passes, spend one PRO detail call.
+          # 2) Only after the cheap actual-app gate passes, use one PRO detail call.
           time.sleep(0.5)
           p2={'relation':'썸','nickname':'민지','message':'[PRO 고백 타이밍] 두 번 단둘이 만났고 상대도 먼저 연락을 3번 했고 다음 만남 날짜를 먼저 제안했다. 서로 질문과 자기 이야기가 많다. 확인된 사실, 참여, 과투자를 먼저 보고 고백 타이밍을 분석해줘.','tone':'차분하고 현실적으로','mode':'detail','advanced':True}
-          st,d=post(p2,150)
+          st,d=post_json('/api/love-analysis',p2,150)
           text=json.dumps(d,ensure_ascii=False)
-          forbidden=['[[lengthRule]]','[[done]]','[[meaning]]','그때 얘기했던 데','아까 말한 카페','전에 말한 전시','초반 어색함 없이','몸 푸는','생각 중이야','가보고 싶','중간 정도','중간~높음','낮음~중간']
-          complete=(st==200 and d.get('serverVersion')==EXPECT and bool(d.get('meaning')) and bool(d.get('emotion')) and bool(d.get('flow')) and bool(d.get('strategy')) and bool(d.get('caution')) and bool(d.get('advice')) and bool(d.get('nextAction')) and len(d.get('replies') or [])>=3 and len(str(d.get('nextAction')).strip())>20)
-          ok2=complete and not any(x in text for x in forbidden)
-          out.append({'id':2,'title':'PRO 고백 타이밍-사실기반/완결','status':st,'ok':ok2,'response':d})
-          save(); print(('PASS' if ok2 else 'FAIL'),2)
-          if not ok2: sys.exit(1)
+          forbidden=['[[lengthRule]]','[[done]]','[[meaning]]','그때 얘기했던 데','아까 말한 카페','전에 말한 전시','초기 어색함','초반 어색함','몸 푸는','생각 중이야','가보고 싶','중간 정도','중간~높음','낮음~중간']
+          flow=str(d.get('flow') or '')
+          grounded=('입력에서 확인되는 참여 행동' in flow and '입력에 없' in flow)
+          complete=(st==200 and d.get('serverVersion')==EXPECT and bool(d.get('meaning')) and bool(d.get('emotion')) and bool(flow) and bool(d.get('strategy')) and bool(d.get('caution')) and bool(d.get('advice')) and bool(d.get('nextAction')) and len(d.get('replies') or [])>=3)
+          ok2=complete and grounded and not any(x in text for x in forbidden)
+          out.append({'id':2,'title':'PRO 고백 타이밍-근거 고정/완결','status':st,'ok':ok2,'response':d})
+          save();print(('PASS' if ok2 else 'FAIL'),2)
+          if not ok2:sys.exit(1)
           PY
-      - name: Upload v26 final results
+      - name: Upload v27 app-path results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: somtok-v26-final
-          path: somtok_v26_final.json
+          name: somtok-v27-app-path
+          path: somtok_v27_app_path.json
           if-no-files-found: warn
           retention-days: 3
