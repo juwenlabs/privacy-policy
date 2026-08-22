@@ -1,1 +1,1 @@
-Trigger Somtok v27 actual SSE app path gate, then one PRO detail call only if it passes.
+Trigger Somtok v27 mini regression: contact stop, clear rejection, advanced starter, then one PRO safety call only if all cheap gates pass.
