@@ -1,1 +1,1 @@
-Temporary trigger for staged Somtok smoke QA after server patch.
+Trigger staged Somtok smoke QA against Potentia v15 server.
