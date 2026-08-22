@@ -1,1 +1,1 @@
-Trigger five targeted Somtok v16 quality regression cases.
+Trigger final two-case Somtok v17 regression verification.
