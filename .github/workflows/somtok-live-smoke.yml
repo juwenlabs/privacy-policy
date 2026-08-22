@@ -1,0 +1,60 @@
+name: somtok-live-smoke
+on:
+  pull_request:
+    branches: ["main"]
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Run staged smoke cases
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, time, urllib.request, urllib.error
+          BASE='https://lovetalk-api.onrender.com'
+          cases=[
+            {'id':1,'title':'고급 선톡-번호 교환 정상','url':'/api/starter','payload':{'relation':'번호 교환','nickname':'민지','message':'오늘 행사에서 번호를 교환했고 상대가 집에 도착했을 시간','tone':'자연스럽게','starterGoal':'대화를 자연스럽게 열기','advanced':True},'kind':'starter'},
+            {'id':2,'title':'고급 선톡-연락 중단 경계','url':'/api/starter','payload':{'relation':'썸','nickname':'민지','message':'상대가 더 이상 연락하지 말아 달라고 명확히 말함','tone':'자연스럽게','starterGoal':'다시 연락하기','advanced':True},'kind':'guard'},
+            {'id':3,'title':'빠른 분석-짧은 답장 1회','url':'/api/love-analysis','payload':{'relation':'초기 대화','nickname':'민지','message':'나: 오늘 뭐해요?\n상대: 그냥 누워 있어요','tone':'자연스럽게','mode':'quick'},'kind':'analysis'},
+            {'id':4,'title':'빠른 분석-명확한 거절','url':'/api/love-analysis','payload':{'relation':'소개팅','nickname':'민지','message':'상대: 좋은 분인 건 맞는데 이성적으로는 아닌 것 같아요','tone':'자연스럽게','mode':'quick'},'kind':'analysis'},
+            {'id':5,'title':'상세 분석-고백 타이밍 상호참여','url':'/api/love-analysis','payload':{'relation':'썸','nickname':'민지','message':'두 번 단둘이 만났고 상대도 먼저 연락을 3번 했고 다음 만남 날짜를 먼저 제안했다. 서로 질문과 자기 이야기가 많다. 고백 타이밍을 현실적으로 분석해줘. 확인된 사실과 추측을 구분해줘.','tone':'차분하고 현실적으로','mode':'detail','advanced':True},'kind':'detail'}
+          ]
+          out=[]; failures=0; consecutive=0
+          for c in cases:
+            row={'id':c['id'],'title':c['title'],'kind':c['kind']}
+            try:
+              req=urllib.request.Request(BASE+c['url'],data=json.dumps(c['payload'],ensure_ascii=False).encode(),headers={'Content-Type':'application/json','User-Agent':'Somtok-Staged-Smoke/1.0'},method='POST')
+              with urllib.request.urlopen(req,timeout=90) as r:
+                raw=r.read().decode('utf-8','replace'); row['status']=r.status
+                try: row['response']=json.loads(raw)
+                except: row['response_raw']=raw
+            except urllib.error.HTTPError as e:
+              row['status']=e.code; row['error']=e.read().decode('utf-8','replace')
+            except Exception as e:
+              row['status']=0; row['error']=repr(e)
+            ok=row.get('status')==200
+            resp=row.get('response') or {}
+            if ok and c['kind']=='guard': ok=bool(resp.get('doNotSend')) and not resp.get('replies')
+            if ok and c['kind']=='starter': ok=isinstance(resp.get('replies'),list) and len(resp.get('replies'))>=3
+            if ok and c['kind'] in ('analysis','detail'): ok=bool(resp.get('meaning')) and isinstance(resp.get('replies'),list) and len(resp.get('replies'))>=1
+            row['structural_pass']=ok
+            if ok: consecutive=0
+            else: failures+=1; consecutive+=1
+            out.append(row)
+            print(f"CASE {c['id']} status={row.get('status')} structural_pass={ok} {c['title']}")
+            if failures>=2 or consecutive>=2:
+              print('EARLY_STOP failures=',failures,'consecutive=',consecutive)
+              break
+            time.sleep(0.5)
+          with open('somtok-smoke-results.json','w',encoding='utf-8') as f: json.dump(out,f,ensure_ascii=False,indent=2)
+          print('EXECUTED',len(out),'FAILURES',failures)
+          PY
+      - name: Upload smoke results
+        uses: actions/upload-artifact@v4
+        with:
+          name: somtok-live-smoke-results
+          path: somtok-smoke-results.json
+          retention-days: 3
