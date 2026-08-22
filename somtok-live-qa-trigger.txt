@@ -1,1 +1,1 @@
-Trigger cheap Somtok v24 quick gate before PRO detail test.
+Trigger cheap Somtok v25 quick gate before PRO detail test.
