@@ -1,1 +1,1 @@
-Trigger staged Somtok smoke QA against Potentia v15 server.
+Trigger five targeted Somtok v16 quality regression cases.
