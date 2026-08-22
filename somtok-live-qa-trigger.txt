@@ -1,1 +1,1 @@
-Trigger final two-case Somtok v20 manual-aligned verification.
+Trigger final two-case Somtok v21 source-aligned verification.
