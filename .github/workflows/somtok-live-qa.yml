@@ -1,0 +1,69 @@
+name: somtok-live-qa
+on:
+  pull_request:
+    branches: ["main"]
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Run v30 five-case gate
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,sys,urllib.request,urllib.error
+          BASE='https://lovetalk-api.onrender.com'; EXPECT='2026-08-23-potentia-v30-starter-json-recovery'; R=[];fails=0
+          def save():open('qa.json','w',encoding='utf-8').write(json.dumps(R,ensure_ascii=False,indent=2))
+          def postsse(path,p,timeout=140):
+            req=urllib.request.Request(BASE+path,data=json.dumps(p,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','User-Agent':'Somtok-v30-Gate'},method='POST')
+            try:
+              with urllib.request.urlopen(req,timeout=timeout) as r:raw=r.read().decode('utf-8','replace');st=r.status
+            except urllib.error.HTTPError as e:return e.code,{'http_error':e.read().decode('utf-8','replace')}
+            d={'replies':[]};ver=''
+            for b in raw.split('\n\n'):
+              ev='';x=None
+              for line in b.splitlines():
+                if line.startswith('event:'):ev=line[6:].strip()
+                elif line.startswith('data:'):
+                  try:x=json.loads(line[5:].strip())
+                  except:pass
+              if ev=='guard' and isinstance(x,dict):d['guard']=x
+              elif ev=='section' and isinstance(x,dict):
+                n=x.get('name');v=x.get('value')
+                if str(n).startswith('reply'):
+                  i=int(str(n).replace('reply','') or 1)-1
+                  while len(d['replies'])<=i:d['replies'].append(None)
+                  d['replies'][i]=v
+                elif n:d[n]=v
+              elif ev=='done' and isinstance(x,dict):ver=x.get('serverVersion','')
+              elif ev=='error':d['streamError']=x
+            d['replies']=[x for x in d['replies'] if x];d['serverVersion']=ver;return st,d
+          def reps(d):return [str(x.get('text','')) if isinstance(x,dict) else str(x) for x in d.get('replies') or []]
+          def rec(i,title,st,ok,d):
+            global fails
+            structural=st!=200 or bool(d.get('streamError')) or bool(d.get('http_error'))
+            R.append({'id':i,'title':title,'status':st,'ok':bool(ok),'structural':structural,'response':d});save();print(('PASS' if ok else 'FAIL'),i,title)
+            if structural:sys.exit(20)
+            if not ok:
+              fails+=1
+              if fails>=2:sys.exit(21)
+          with urllib.request.urlopen(BASE+'/api/version',timeout=30) as r:v=json.loads(r.read().decode());st=r.status
+          R.append({'id':0,'title':'version','status':st,'ok':v.get('version')==EXPECT,'response':v});save()
+          if st!=200 or v.get('version')!=EXPECT:sys.exit(10)
+          st,d=postsse('/api/starter-stream',{'relation':'번호 교환','nickname':'민지','message':'오늘 서점 행사에서 처음 만나 잠깐 대화하고 번호를 교환했어요. 상대가 집에 도착했을 시간입니다. 반말 합의는 없어요.','tone':'자연스럽게','starterGoal':'대화를 자연스럽게 열기'});rr=reps(d);rec(1,'번호 교환 첫 선톡',st,d.get('serverVersion')==EXPECT and len(rr)==3 and not any(x in ' '.join(rr) for x in ['즐거웠어요','반가웠어요','기대돼요','ㅋㅋ']),d)
+          st,d=postsse('/api/love-analysis-stream',{'relation':'초기 대화','nickname':'민지','message':'나: 지금 뭐하고 계세요?\n상대: 그냥 누워 있어요','tone':'자연스럽게','mode':'quick'});rr=reps(d);rec(2,'짧은 답장 한 번',st,d.get('serverVersion')==EXPECT and len(rr)>=3 and all(x.count('?')<=1 for x in rr) and not any(x in ' '.join(rr) for x in ['그렇구나','나도 ','저녁','아침','날씨','ㅋㅋ']),d)
+          st,d=postsse('/api/starter-stream',{'relation':'썸','nickname':'민지','message':'두 시간 전에 질문을 보냈는데 아직 답이 없어요. 다시 한 번 보낼까요?','tone':'자연스럽게','starterGoal':'답 받기','selectedSituation':'연락을 기다리는 중이야'});rec(3,'2시간 무응답',st,d.get('serverVersion')==EXPECT and bool((d.get('guard') or {}).get('doNotSend')) and not d.get('replies'),d)
+          st,d=postsse('/api/love-analysis-stream',{'relation':'소개팅','nickname':'민지','message':'상대: 좋은 분인 건 맞는데 이성적으로는 아닌 것 같아요.','tone':'자연스럽게','mode':'quick'});rr=' '.join(reps(d));a=str(d.get('nextAction',''));rec(4,'명확한 거절',st,d.get('serverVersion')==EXPECT and not any(x in rr for x in ['나중에 다시','좋은 인연','한 번 더 만나']) and any(x in a for x in ['더 이상 연락','마무리','존중','멈']),d)
+          st,d=postsse('/api/love-analysis-stream',{'relation':'썸','nickname':'민지','message':'나: 토요일에 전시 볼래요?\n상대: 토요일은 안 되는데 다음 주 화요일 저녁은 괜찮아요.','tone':'자연스럽게','mode':'quick'});rec(5,'거절+대안 날짜',st,d.get('serverVersion')==EXPECT and '화요일' in ' '.join(reps(d)),d)
+          R.append({'summary':{'cases':5,'failures':fails}});save()
+          PY
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: somtok-v30-gate-results
+          path: qa.json
+          if-no-files-found: warn
+          retention-days: 3
