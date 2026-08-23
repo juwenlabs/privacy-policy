@@ -1,1 +1,1 @@
-Run final four low-cost Somtok real-user edge cases.
+Run Somtok v32 final deterministic and general regression.
