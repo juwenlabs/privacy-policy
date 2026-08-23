@@ -1,0 +1,11 @@
+name: somtok-real-user-staged
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - run: echo staged QA placeholder
