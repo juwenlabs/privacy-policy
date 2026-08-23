@@ -1,0 +1,68 @@
+name: somtok-v57-no-send-detail-retest
+on:
+  pull_request:
+    branches: ["main"]
+jobs:
+  qa:
+    if: github.event.pull_request.head.ref == 'agent/somtok-v38-realuser-run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Retest v57 no-send detailed analysis
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,sys,urllib.request,urllib.error
+          BASE='https://lovetalk-api.onrender.com'
+          EXPECT='2026-08-23-potentia-v57-no-send-detail-replies'
+          R=[]
+          def save():
+            open('v57-no-send-detail.json','w',encoding='utf-8').write(json.dumps(R,ensure_ascii=False,indent=2))
+          def sse(p,timeout=190):
+            req=urllib.request.Request(BASE+'/api/love-analysis-stream',data=json.dumps(p,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','User-Agent':'Somtok-V57-No-Send-Detail'},method='POST')
+            try:
+              with urllib.request.urlopen(req,timeout=timeout) as r:
+                raw=r.read().decode('utf-8','replace');status=r.status
+            except urllib.error.HTTPError as e:
+              return e.code,{'http_error':e.read().decode('utf-8','replace')}
+            except Exception as e:
+              return 0,{'transport_error':repr(e)}
+            out={'replies':[],'serverVersion':''}
+            for block in raw.replace('\r\n','\n').split('\n\n'):
+              ev='';data=None
+              for line in block.splitlines():
+                if line.startswith('event:'):ev=line[6:].strip()
+                elif line.startswith('data:'):
+                  try:data=json.loads(line[5:].strip())
+                  except:data=None
+              if not data:continue
+              if ev=='section':
+                n=data.get('name');v=data.get('value')
+                if str(n).startswith('reply'):
+                  if isinstance(v,dict):out['replies'].append(v)
+                else:out[n]=v
+              elif ev=='done':out['serverVersion']=data.get('serverVersion','')
+              elif ev=='error':out['error']=data
+            return status,out
+          try:
+            with urllib.request.urlopen(urllib.request.Request(BASE+'/api/version',headers={'User-Agent':'Somtok-V57-No-Send-Detail'}),timeout=30) as r:
+              body=r.read().decode('utf-8','replace')
+              if r.status!=200 or EXPECT not in body:
+                R.append({'name':'00 version','pass':False,'type':'structure','status':r.status,'body':body});save();sys.exit(10)
+          except Exception as e:
+            R.append({'name':'00 version','pass':False,'type':'structure','error':repr(e)});save();sys.exit(10)
+          p={'nickname':'상대','tone':'자연스럽게','profile':{},'images':[],'relation':'썸 초기','recentMemory':'이전 AI 추정: 상대가 나를 좋아하는 것 같고 적극적일 수 있음. 이것은 AI가 만든 추정임.','message':'확인된 사실은 최근 4번 대화 중 내가 3번 먼저 시작했고 상대가 먼저 시작한 건 1번이야. 상대는 답장은 했지만 약속을 제안한 적은 없어. 지금 관계를 상세히 봐줘.','mode':'detail','selectedSituation':'썸인지 헷갈려'}
+          st,d=sse(p)
+          structure=(st==200 and d.get('serverVersion')==EXPECT and not any(k in d for k in ['error','http_error','transport_error']) and d.get('confidence') in ['높음','중간','낮음'] and bool(d.get('nextAction')))
+          core=' '.join(str(d.get(k,'')) for k in ['meaning','emotion','flow','advice','nextAction'])
+          quality=(structure and len(d.get('replies',[]))==0 and any(z in core for z in ['3번','사용자가 더','사용자 쪽','불균형']) and not any(z in str(d.get('meaning',''))+' '+str(d.get('emotion','')) for z in ['호감이 확실','썸이 확실','상대가 좋아한다','호감이 높다']) and not any(z in str(d.get('nextAction','')) for z in ['며칠 동안','2~3일','2-3일','3일 동안']))
+          R.append({'name':'01 no-send detail has no reply cards','pass':quality,'type':'quality' if structure else 'structure','status':st,'data':d});save()
+          if not structure:sys.exit(10)
+          if not quality:sys.exit(20)
+          PY
+      - name: Upload v57 result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: somtok-v57-no-send-detail-result
+          path: v57-no-send-detail.json
