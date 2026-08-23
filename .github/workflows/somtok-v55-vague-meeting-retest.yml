@@ -1,0 +1,68 @@
+name: somtok-v55-vague-meeting-retest
+on:
+  pull_request:
+    branches: ["main"]
+jobs:
+  qa:
+    if: github.event.pull_request.head.ref == 'agent/somtok-v38-realuser-run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Retest v55 vague meeting user intent grounding
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,sys,urllib.request,urllib.error
+          BASE='https://lovetalk-api.onrender.com'
+          EXPECT='2026-08-23-potentia-v55-vague-meeting-user-intent'
+          R=[]
+          def save():
+            open('v55-vague-meeting.json','w',encoding='utf-8').write(json.dumps(R,ensure_ascii=False,indent=2))
+          def sse(p,timeout=170):
+            req=urllib.request.Request(BASE+'/api/love-analysis-stream',data=json.dumps(p,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','User-Agent':'Somtok-V55-Vague-Meeting'},method='POST')
+            try:
+              with urllib.request.urlopen(req,timeout=timeout) as r:
+                raw=r.read().decode('utf-8','replace');status=r.status
+            except urllib.error.HTTPError as e:
+              return e.code,{'http_error':e.read().decode('utf-8','replace')}
+            except Exception as e:
+              return 0,{'transport_error':repr(e)}
+            out={'replies':[],'serverVersion':''}
+            for block in raw.replace('\r\n','\n').split('\n\n'):
+              ev='';data=None
+              for line in block.splitlines():
+                if line.startswith('event:'):ev=line[6:].strip()
+                elif line.startswith('data:'):
+                  try:data=json.loads(line[5:].strip())
+                  except:data=None
+              if not data:continue
+              if ev=='section':
+                n=data.get('name');v=data.get('value')
+                if str(n).startswith('reply'):
+                  if isinstance(v,dict):out['replies'].append(v)
+                else:out[n]=v
+              elif ev=='done':out['serverVersion']=data.get('serverVersion','')
+              elif ev=='error':out['error']=data
+            return status,out
+          try:
+            with urllib.request.urlopen(urllib.request.Request(BASE+'/api/version',headers={'User-Agent':'Somtok-V55-Vague-Meeting'}),timeout=30) as r:
+              body=r.read().decode('utf-8','replace')
+              if r.status!=200 or EXPECT not in body:
+                R.append({'name':'00 version','pass':False,'type':'structure','status':r.status,'body':body});save();sys.exit(10)
+          except Exception as e:
+            R.append({'name':'00 version','pass':False,'type':'structure','error':repr(e)});save();sys.exit(10)
+          p={'nickname':'상대','tone':'자연스럽게','profile':{},'recentMemory':'','images':[],'relation':'첫 만남 이후','message':'처음 만난 뒤 상대가 다음날 먼저 "잘 들어갔어요?"라고 연락했고, 이후 서로 질문도 주고받았어. 대화 중 상대가 "다음에 또 봐요"라고 했지만 날짜나 시간은 전혀 정하지 않았고, 나는 언제 가능한지 아직 말하지 않았어. 지금 관계를 상세히 봐줘.','mode':'detail','selectedSituation':'썸인지 헷갈려'}
+          st,d=sse(p)
+          structure=(st==200 and d.get('serverVersion')==EXPECT and not any(k in d for k in ['error','http_error','transport_error']) and bool(d.get('nextAction')) and d.get('confidence') in ['높음','중간','낮음'])
+          t=' '.join(str(x.get('text','')) for x in d.get('replies',[]) if isinstance(x,dict))
+          quality=(structure and len(d.get('replies',[]))==0 and not any(z in t for z in ['저도 좋아요','또 뵈면 좋겠','저도 보고 싶','저도 만나고 싶']) and not any(z in t for z in ['이번 주','다음 주','주말','월요일','화요일','수요일','목요일','금요일','토요일','일요일','카페','영화관','식당']))
+          R.append({'name':'01 vague future meeting no invented user intent','pass':quality,'type':'quality' if structure else 'structure','status':st,'data':d});save()
+          if not structure:sys.exit(10)
+          if not quality:sys.exit(20)
+          PY
+      - name: Upload v55 result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: somtok-v55-vague-meeting-result
+          path: v55-vague-meeting.json
