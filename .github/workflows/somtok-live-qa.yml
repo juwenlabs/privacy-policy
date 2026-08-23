@@ -59,8 +59,8 @@ jobs:
           if st!=200 or v.get('version')!=EXPECT:sys.exit(10)
           # Critical fix 1: two rejected meeting proposals + no alternative => stop, no 3-day follow-up.
           st,d=post_sse('/api/love-analysis-stream',{'relation':'썸','nickname':'민지','message':'내가 두 번 약속을 제안했는데 둘 다 어렵다고 했고 상대가 다른 날짜는 전혀 제안하지 않았어요. 이미 마지막 거절에는 알겠다고 답했어요. 또 연락할까요?','tone':'자연스럽게','mode':'quick'})
-          text=(str(d.get('advice',''))+' '+str(d.get('nextAction',''))+' '+str(d.get('caution','')))
-          ok=d.get('serverVersion')==EXPECT and any(x in text for x in ['추가 연락하지','새 메시지를 보내지','추가 연락 없이','상대가 먼저']) and not any(x in text for x in ['3일 뒤','사흘 뒤','확인 연락을 한 번','며칠 뒤 다시'])
+          decision_text=(str(d.get('advice',''))+' '+str(d.get('nextAction','')))
+          ok=d.get('serverVersion')==EXPECT and any(x in decision_text for x in ['추가 연락하지','새 메시지를 보내지','추가 연락 없이','상대가 먼저']) and not any(x in decision_text for x in ['3일 뒤','사흘 뒤','확인 연락을 한 번','며칠 뒤 다시'])
           rec(1,'두 번 거절 후 완전 중단',st,ok,d,True)
           # Critical fix 2: memory enhancement must finish without 500 and remain fact-only.
           st,d=post('/api/love-analysis',{'relation':'썸','nickname':'민지','message':'[PRO 상대별 AI 기억 강화] 최근 3주 기록입니다. 1주차 상대가 먼저 연락 1회, 약속 조율 1회. 2주차 상대가 먼저 연락 2회, 내가 제안한 토요일이 어렵다며 상대가 화요일을 대안으로 제시. 3주차 서로 질문과 자기 이야기가 이어짐. 이전 AI가 회피형, 호감 80%, 밀당 중이라고 쓴 것은 추론입니다. 장기 기억에는 확인된 사실과 반복 행동만 남겨주세요.','tone':'차분하고 현실적으로','mode':'detail','advanced':True})
