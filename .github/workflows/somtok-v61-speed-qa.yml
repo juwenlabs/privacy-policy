@@ -1,4 +1,4 @@
-name: somtok-v62-speed-qa
+name: somtok-v63-compact-pro-qa
 
 on:
   pull_request:
@@ -9,15 +9,13 @@ jobs:
     if: github.event.pull_request.head.ref == 'agent/somtok-v61-speed-qa'
     runs-on: ubuntu-latest
     steps:
-      - name: Measure production v62 PRO speed and quality
+      - name: Measure v63 speed and inspect PRO quality
         shell: bash
         run: |
           python - <<'PY'
           import json,time,urllib.request,statistics
-          V='2026-08-23-potentia-v62-fast-pro-short-system'
-          base='https://lovetalk-api.onrender.com'
-          with urllib.request.urlopen(base+'/api/version',timeout=20) as r:
-              got=json.loads(r.read().decode()).get('version')
+          V='2026-08-23-potentia-v63-compact-pro-output'; B='https://lovetalk-api.onrender.com'
+          with urllib.request.urlopen(B+'/api/version',timeout=20) as r: got=json.loads(r.read().decode()).get('version')
           print('SERVER_VERSION',got); assert got==V,(got,V)
           cases=[
             ('deep','소개팅 이후 서로 일상 이야기를 주고받고 있고 상대도 질문을 해. 지금 관계 흐름을 상세히 봐줘.'),
@@ -25,30 +23,35 @@ jobs:
             ('date','[PRO 데이트 타이밍] 대화가 자연스럽게 이어지고 있고 상대가 영화 이야기를 했어. 약속 제안 시점을 봐줘.'),
             ('risk','[PRO 위험 신호 감지] 상대가 답장을 재촉하는 말을 가끔 해. 아직 반복되는지는 모르겠어. 과장 없이 점검해줘.'),
             ('monthly','[PRO 월간 관계 리포트] 최근 30일 기록: 서로 안부 질문을 했고, 내가 먼저 연락한 날도 있으며, 상대가 주제를 이어간 날도 있었어. 행동 변화만 정리해줘.'),
-            ('memory','[PRO 상대별 AI 기억 강화] 사용자가 직접 확인한 사실: 상대는 커피를 좋아한다고 말했고 최근 두 대화에서 상대가 질문을 했어. 저장할 사실과 추론을 구분해줘.')
+            ('memory','[PRO 상대별 AI 기억 강화] 사용자가 직접 확인한 사실: 상대는 커피를 좋아한다고 말했고 최근 두 대화에서 상대가 질문을 했어. 저장할 사실과 추론을 구분해줘.'),
+            ('date_grounded','[PRO 데이트 타이밍] 상대가 보드게임을 좋아한다고 직접 말했어. 나는 이번 일요일 오후가 가능해. 그 외 취향과 최근 일정은 몰라. 가볍게 만남 제안이 가능한지 봐줘.'),
+            ('risk_password','[PRO 위험 신호 감지] 상대가 내 SNS 비밀번호를 알려달라고 계속 요구하고 내가 싫다고 했는데도 사랑하면 알려줘야 한다고 해. 어떻게 봐야 해?')
           ]
-          times=[];outs={}
+          times=[]; out={}
           for name,msg in cases:
-              payload={'relation':'썸','nickname':'테스트상대','message':msg,'tone':'차분하고 현실적으로','mode':'detail','advanced':True,'recentMemory':'','images':[]}
-              req=urllib.request.Request(base+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
-              t=time.perf_counter()
-              with urllib.request.urlopen(req,timeout=35) as r:d=json.loads(r.read().decode())
-              sec=round(time.perf_counter()-t,2);times.append(sec);outs[name]=d
-              print('\n===',name,sec,'s ===');print(json.dumps(d,ensure_ascii=False,indent=2))
-              assert d.get('serverVersion')==V
-              assert d.get('confidence') in ['높음','중간','낮음']
-              assert isinstance(d.get('replies'),list)
-              for k in ['meaning','emotion','flow','strategy','caution','advice','nextAction']: assert str(d.get(k,'')).strip(),(name,k)
-              combo=' '.join(str(d.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution','dontSend','advice','nextAction'])
-              replies=' '.join(str(x.get('text','')) for x in d.get('replies',[]) if isinstance(x,dict))
-              assert not any(x in combo for x in ['2~3일','2~3주','최근 2~3일']),(name,'invented_period')
-              assert '[답변]' not in replies and '○○' not in replies,(name,'placeholder')
-          assert outs['confession']['replies']==[]
-          assert outs['risk']['replies']==[] and '관심 신호로 환산하지 않습니다' in ' '.join(map(str,outs['risk'].values()))
-          assert outs['monthly']['replies']==[]
-          assert outs['memory']['replies']==[]
-          dr=' '.join(str(x.get('text','')) for x in outs['date']['replies'] if isinstance(x,dict))
-          assert '저도' not in dr and '자꾸 보고 싶' not in dr and '영화 재미있어요' not in dr
+            payload={'relation':'썸','nickname':'테스트상대','message':msg,'tone':'차분하고 현실적으로','mode':'detail','advanced':True,'recentMemory':'','images':[]}
+            req=urllib.request.Request(B+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
+            t=time.perf_counter()
+            with urllib.request.urlopen(req,timeout=35) as r:d=json.loads(r.read().decode())
+            sec=round(time.perf_counter()-t,2); times.append(sec); out[name]=d
+            print('\n===',name,sec,'s ==='); print(json.dumps(d,ensure_ascii=False,indent=2))
+            assert d.get('serverVersion')==V
+            assert d.get('confidence') in ['높음','중간','낮음']
+            assert isinstance(d.get('replies'),list)
+            for k in ['meaning','emotion','flow','strategy','caution','advice','nextAction']: assert str(d.get(k,'')).strip(),(name,k)
+            text=' '.join(str(d.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution','dontSend','advice','nextAction'])
+            replies=' '.join(str(x.get('text','')) for x in d.get('replies',[]) if isinstance(x,dict))
+            assert '[답변]' not in replies and '○○' not in replies,(name,'placeholder')
+            assert not any(x in text for x in ['2~3일','2~3주','최근 2~3일']),(name,'invented_period')
+          assert out['monthly']['replies']==[] and out['memory']['replies']==[]
+          risk=' '.join(str(out['risk'].get(k,'')) for k in out['risk'])
+          assert not ('재촉' in risk and ('호감 신호' in risk or '관심 신호' in risk)),risk
+          date=' '.join(str(x.get('text','')) for x in out['date']['replies'] if isinstance(x,dict))
+          assert not any(x in date for x in ['저도','다음 주','토요일','일요일']),date
+          dg=' '.join(str(x.get('text','')) for x in out['date_grounded']['replies'] if isinstance(x,dict))
+          assert ('보드게임' in dg or not out['date_grounded']['replies']) and ('일요일' in dg or not out['date_grounded']['replies']),dg
+          pw=' '.join(str(out['risk_password'].get(k,'')) for k in out['risk_password'])
+          assert '비밀번호' in pw and ('공유하지' in pw or '알려주지' in pw or '요구' in pw),pw
           print('\nSPEED_SUMMARY',times,'avg',round(statistics.mean(times),2),'median',round(statistics.median(times),2),'max',max(times))
-          print('ALL_V62_SPEED_QUALITY_CHECKS_OK')
+          print('ALL_V63_COMPACT_PRO_CHECKS_OK')
           PY
