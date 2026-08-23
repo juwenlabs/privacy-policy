@@ -1,1 +1,1 @@
-temporary Somtok v71 actual detail QA trigger
+temporary Somtok v72 final regression QA trigger
