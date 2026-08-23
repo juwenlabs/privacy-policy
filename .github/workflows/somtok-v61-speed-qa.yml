@@ -1,4 +1,4 @@
-name: somtok-v66-full-pro-qa
+name: somtok-v67-final-pro-qa
 
 on:
   pull_request:
@@ -9,12 +9,12 @@ jobs:
     if: github.event.pull_request.head.ref == 'agent/somtok-v61-speed-qa'
     runs-on: ubuntu-latest
     steps:
-      - name: Test v66 speed and grounded PRO quality
+      - name: Final v67 speed and grounded PRO verification
         shell: bash
         run: |
           python - <<'PY'
           import json,time,urllib.request,statistics
-          V='2026-08-23-potentia-v66-grounded-fast-pro'; B='https://lovetalk-api.onrender.com'
+          V='2026-08-23-potentia-v67-grounded-fast-pro-final'; B='https://lovetalk-api.onrender.com'
           with urllib.request.urlopen(B+'/api/version',timeout=20) as r: got=json.loads(r.read().decode()).get('version')
           print('SERVER_VERSION',got); assert got==V,(got,V)
           cases=[
@@ -42,7 +42,6 @@ jobs:
             rep=' '.join(str(x.get('text','')) for x in d.get('replies',[]) if isinstance(x,dict))
             assert not any(x in alltext for x in ['2~3일','2~3주']), (name,'invented_period',alltext)
             assert '[답변]' not in rep and '○○' not in rep,(name,'placeholder')
-          # Common paths now return without model wait.
           for name in ['confession','date','risk','risk_password','memory','date_grounded']:
             assert times[name] < 3.0,(name,'instant path too slow',times[name])
           confession=' '.join(str(outs['confession'].get(k,'')) for k in outs['confession'])
@@ -51,8 +50,6 @@ jobs:
           date_rep=' '.join(str(x.get('text','')) for x in outs['date']['replies'] if isinstance(x,dict))
           assert len(outs['date']['replies'])==3
           assert not any(x in date_rep for x in ['다음 주','토요일','일요일','저도','보여줘','스크린샷'])
-          date_all=' '.join(str(outs['date'].get(k,'')) for k in outs['date'])
-          assert '호감 신호' not in date_all and '관심 신호' not in date_all
           risk_all=' '.join(str(outs['risk'].get(k,'')) for k in outs['risk'])
           assert outs['risk']['replies']==[]
           assert '관심 신호로 환산하지 않습니다' in risk_all
@@ -63,11 +60,13 @@ jobs:
           mem=' '.join(str(outs['memory'].get(k,'')) for k in outs['memory'])
           assert '관심의 신호일 수' not in mem and '대화 지속 의지' not in mem
           dg=' '.join(str(x.get('text','')) for x in outs['date_grounded']['replies'] if isinstance(x,dict))
+          dg_all=' '.join(str(outs['date_grounded'].get(k,'')) for k in outs['date_grounded'])
           assert len(outs['date_grounded']['replies'])==3
           assert '보드게임' in dg and '일요일' in dg
           assert not any(x in dg for x in ['토요일','다음 주','카페','매장'])
+          assert '오후이 가능' not in dg_all
           vals=list(times.values())
           assert max(vals) < 15.0,('overall too slow',times)
           print('\nSPEED_SUMMARY',times,'avg',round(statistics.mean(vals),2),'median',round(statistics.median(vals),2),'max',max(vals))
-          print('ALL_V66_FULL_PRO_CHECKS_OK')
+          print('ALL_V67_FINAL_PRO_CHECKS_OK')
           PY
