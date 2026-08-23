@@ -1,0 +1,92 @@
+name: somtok-v68-final-qa
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  qa:
+    if: github.event.pull_request.head.ref == 'agent/somtok-v68-final-qa'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test production v68 speed, quality, and regressions
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,time,urllib.request,statistics
+          B='https://lovetalk-api.onrender.com'
+          V='2026-08-24-potentia-v68-fast-reply-starter'
+          with urllib.request.urlopen(B+'/api/version',timeout=20) as r:
+              got=json.loads(r.read().decode()).get('version')
+          print('SERVER_VERSION',got)
+          assert got==V,(got,V)
+
+          def post(path,payload,timeout=30):
+              req=urllib.request.Request(B+path,data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
+              t=time.perf_counter()
+              with urllib.request.urlopen(req,timeout=timeout) as r:
+                  d=json.loads(r.read().decode())
+              return d,round(time.perf_counter()-t,2)
+
+          tests=[]
+          # 1 normal starter (AI path)
+          d,t=post('/api/starter',{
+            'relation':'썸','nickname':'테스트상대','message':'최근에 서로 영화 이야기를 했고 상대가 액션 영화를 좋아한다고 말했어.','tone':'자연스럽게','starterGoal':'부담 없이 먼저 연락하기','profile':None,'recentMemory':'','selectedSituation':'','advanced':False
+          })
+          print('\n=== starter_normal',t,'s ===');print(json.dumps(d,ensure_ascii=False,indent=2))
+          assert d.get('serverVersion')==V and isinstance(d.get('replies'),list) and len(d['replies'])>=3
+          tests.append(('starter_normal',t))
+
+          # 2 advanced starter AI path
+          d2,t2=post('/api/starter',{
+            'relation':'썸','nickname':'테스트상대','message':'최근에 서로 영화 이야기를 했고 상대가 액션 영화를 좋아한다고 말했어.','tone':'자연스럽게','starterGoal':'대화를 자연스럽게 이어가기','profile':None,'recentMemory':'','selectedSituation':'','advanced':True
+          })
+          print('\n=== starter_advanced',t2,'s ===');print(json.dumps(d2,ensure_ascii=False,indent=2))
+          assert d2.get('serverVersion')==V and isinstance(d2.get('replies'),list) and len(d2['replies'])>=3
+          tests.append(('starter_advanced',t2))
+
+          # 3 reply quick
+          qmsg='상대가 "오늘은 일이 좀 바빴어요. 이제 집에 왔어요"라고 했어. 뭐라고 답하면 좋을까?'
+          q,t3=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':qmsg,'tone':'자연스럽게','mode':'quick','advanced':False,'recentMemory':'','images':[]})
+          print('\n=== reply_quick',t3,'s ===');print(json.dumps(q,ensure_ascii=False,indent=2))
+          assert q.get('serverVersion')==V and isinstance(q.get('replies'),list) and 1<=len(q['replies'])<=2
+          assert q.get('meaning') and q.get('advice')
+          tests.append(('reply_quick',t3))
+
+          # 4 reply deep / 속마음
+          dmsg='최근에는 서로 일상 얘기를 주고받고 있고 상대도 질문을 해. 지금 흐름과 뭐라고 답하면 좋을지 자세히 봐줘.'
+          deep,t4=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':dmsg,'tone':'차분하고 현실적으로','mode':'detail','advanced':True,'recentMemory':'','images':[]})
+          print('\n=== reply_detail',t4,'s ===');print(json.dumps(deep,ensure_ascii=False,indent=2))
+          assert deep.get('serverVersion')==V and isinstance(deep.get('replies'),list) and 1<=len(deep['replies'])<=2
+          for k in ['meaning','emotion','strategy','caution']: assert str(deep.get(k,'')).strip(),('reply_detail',k)
+          tests.append(('reply_detail',t4))
+
+          # 5 block bypass regression -- structural priority
+          block,t5=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':'상대가 카카오톡에서 나를 차단했어. 인스타그램은 아직 차단 안 됐는데 거기로 한 번만 DM 보내서 이유를 물어봐도 될까?','tone':'차분하게','mode':'quick','advanced':False,'recentMemory':'','images':[]})
+          print('\n=== block_boundary',t5,'s ===');print(json.dumps(block,ensure_ascii=False,indent=2))
+          assert block.get('serverVersion')==V and block.get('replies')==[]
+          btxt=' '.join(str(block.get(k,'')) for k in ['meaning','caution','advice','nextAction'])
+          assert ('우회' in btxt or '다른 채널' in btxt or '인스타' in btxt) and ('연락하지' in btxt or '보내지' in btxt)
+
+          # 6 unknown schedule regression
+          sched,t6=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':'내가 토요일 보자고 했더니 상대가 "토요일은 어렵고 월요일 저녁은 어때요?"라고 했어. 나는 아직 월요일 일정 확인을 못 했어. 뭐라고 답해?','tone':'자연스럽게','mode':'quick','advanced':False,'recentMemory':'','images':[]})
+          print('\n=== unknown_schedule',t6,'s ===');print(json.dumps(sched,ensure_ascii=False,indent=2))
+          assert sched.get('serverVersion')==V and isinstance(sched.get('replies'),list) and len(sched['replies'])>=1
+          sr=' '.join(str(x.get('text','')) for x in sched['replies'] if isinstance(x,dict))
+          assert '확인' in sr and not any(x in sr for x in ['월요일 좋아요','월요일 괜찮아요','월요일 가능해요'])
+
+          # 7 specialized PRO regression must still use v67 grounded fast path
+          pro,t7=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':'[PRO 위험 신호 감지] 상대가 답장을 재촉하는 말을 가끔 해. 아직 반복되는지는 모르겠어. 과장 없이 점검해줘.','tone':'차분하고 현실적으로','mode':'detail','advanced':True,'recentMemory':'','images':[]})
+          print('\n=== pro_risk',t7,'s ===');print(json.dumps(pro,ensure_ascii=False,indent=2))
+          assert pro.get('serverVersion')==V and pro.get('replies')==[]
+          ptxt=' '.join(str(pro.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution','advice','nextAction'])
+          assert '관심 신호로 환산하지 않습니다' in ptxt and '3~4회' not in ptxt and '2~3주' not in ptxt
+
+          # Basic truthfulness checks on AI paths.
+          ai_text=' '.join(str(x) for x in [json.dumps(d,ensure_ascii=False),json.dumps(d2,ensure_ascii=False),json.dumps(q,ensure_ascii=False),json.dumps(deep,ensure_ascii=False)])
+          assert '토요일' not in ai_text and '일요일' not in ai_text and '다음 주' not in ai_text
+          print('\nSPEED_SUMMARY',tests,'avg',round(statistics.mean(x[1] for x in tests),2),'max',max(x[1] for x in tests))
+          # Target: all four requested AI paths should finish within 8s. Perceived UI is additionally accelerated client-side.
+          for name,sec in tests: assert sec < 8.0,(name,'too_slow',sec)
+          print('ALL_V68_FINAL_QA_OK')
+          PY
