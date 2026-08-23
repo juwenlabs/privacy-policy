@@ -1,1 +1,1 @@
-temporary Somtok v69 targeted QA trigger
+temporary Somtok v70 starter QA trigger
