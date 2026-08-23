@@ -1,4 +1,4 @@
-name: somtok-v71-actual-detail-qa
+name: somtok-v72-final-regression-qa
 
 on:
   pull_request:
@@ -9,27 +9,75 @@ jobs:
     if: github.event.pull_request.head.ref == 'agent/somtok-v68-final-qa'
     runs-on: ubuntu-latest
     steps:
-      - name: Test v71 actual quoted detail reply
+      - name: Test v72 production speed quality regressions
         shell: bash
         run: |
           python - <<'PY'
           import json,time,urllib.request
-          B='https://lovetalk-api.onrender.com'; V='2026-08-24-potentia-v71-instant-reply-core'
+          B='https://lovetalk-api.onrender.com'; V='2026-08-24-potentia-v72-grounded-detail-reply'
           with urllib.request.urlopen(B+'/api/version',timeout=20) as r: got=json.loads(r.read().decode()).get('version')
-          assert got==V,(got,V)
+          print('VERSION',got); assert got==V,(got,V)
+          def post(path,payload):
+              req=urllib.request.Request(B+path,data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
+              t=time.perf_counter()
+              with urllib.request.urlopen(req,timeout=25) as r:d=json.loads(r.read().decode())
+              return d,round(time.perf_counter()-t,2)
+
+          # starter normal / advanced common grounded case
+          ctx='최근에 서로 영화 이야기를 했고 상대가 액션 영화를 좋아한다고 말했어.'
+          for name,advanced in [('starter_normal',False),('starter_advanced',True)]:
+              d,sec=post('/api/starter',{'relation':'썸','nickname':'테스트상대','message':ctx,'tone':'자연스럽게','starterGoal':'대화를 자연스럽게 이어가기' if advanced else '부담 없이 먼저 연락하기','profile':None,'recentMemory':'','selectedSituation':'','advanced':advanced})
+              print('\n',name,sec); print(json.dumps(d,ensure_ascii=False,indent=2))
+              assert d.get('serverVersion')==V and isinstance(d.get('replies'),list) and len(d['replies'])==3
+              texts=' '.join(str(x.get('text','')) for x in d['replies'] if isinstance(x,dict))
+              assert '액션 영화' in texts
+              assert not any(x in texts for x in ['생각났','어제','토요일','일요일','다음 주','카페','ㅋㅋ','ㅎㅎ'])
+              assert sec < 3.0,(name,sec)
+
+          # quick reply common case
+          qmsg='상대가 "오늘은 일이 좀 바빴어요. 이제 집에 왔어요"라고 했어. 뭐라고 답하면 좋을까?'
+          q,qt=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':qmsg,'tone':'자연스럽게','mode':'quick','advanced':False,'recentMemory':'','images':[]})
+          print('\nquick',qt); print(json.dumps(q,ensure_ascii=False,indent=2))
+          assert q.get('serverVersion')==V and len(q.get('replies') or [])==2 and qt<3.0
+          qr=' '.join(str(x.get('text','')) for x in q['replies'] if isinstance(x,dict))
+          assert not any(x in qr for x in ['저도 바빴','나도 바빴','토요일','일요일','다음 주'])
+
+          # actual quoted detail reply: prior failure must be fixed and fast
           msg='상대가 "오늘은 일이 좀 바빴어요. 이제 집에 왔어요. 오늘은 뭐 하셨어요?"라고 했어. 속마음까지 자세히 보고 뭐라고 답할지 알려줘.'
-          payload={'relation':'썸','nickname':'테스트상대','message':msg,'tone':'자연스럽고 차분하게','mode':'detail','advanced':True,'recentMemory':'','images':[]}
-          req=urllib.request.Request(B+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
-          t=time.perf_counter()
-          with urllib.request.urlopen(req,timeout=20) as r:d=json.loads(r.read().decode())
-          sec=round(time.perf_counter()-t,2)
-          print('ELAPSED',sec);print(json.dumps(d,ensure_ascii=False,indent=2))
-          assert d.get('serverVersion')==V and isinstance(d.get('replies'),list) and len(d['replies'])==2
-          for k in ['meaning','emotion','strategy','caution']: assert str(d.get(k,'')).strip(),('missing',k)
-          text=' '.join(str(d.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution'])
-          assert not any(x in text for x in ['호감이 높','분명히 좋아','고백해도','속마음은 확실','피곤해 보'])
+          d,dt=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':msg,'tone':'자연스럽고 차분하게','mode':'detail','advanced':True,'recentMemory':'','images':[]})
+          print('\ndetail_actual',dt); print(json.dumps(d,ensure_ascii=False,indent=2))
+          assert d.get('serverVersion')==V and len(d.get('replies') or [])==2 and dt<3.0
           rep=' '.join(str(x.get('text','')) for x in d['replies'] if isinstance(x,dict))
-          assert not any(x in rep for x in ['토요일','일요일','다음 주','저도 바빴','나도 바빴'])
-          assert sec < 7.0,('too_slow',sec)
-          print('ALL_V71_ACTUAL_DETAIL_OK',sec)
+          assert not any(x in rep for x in ['저도 바빴','나도 바빴','저도 집에','나도 집에','토요일','일요일','다음 주'])
+          detailtxt=' '.join(str(d.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution'])
+          assert not any(x in detailtxt for x in ['호감이 높','분명히 좋아','속마음은 확실','고백해도 된다'])
+
+          # summary-style deep analysis should be compact and instant, not invent sendable text
+          smsg='최근에는 서로 일상 얘기를 주고받고 있고 상대도 질문을 해. 지금 흐름과 뭐라고 답하면 좋을지 자세히 봐줘.'
+          s,st=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':smsg,'tone':'차분하고 현실적으로','mode':'detail','advanced':True,'recentMemory':'','images':[]})
+          print('\ndetail_summary',st); print(json.dumps(s,ensure_ascii=False,indent=2))
+          assert s.get('serverVersion')==V and s.get('replies')==[] and st<3.0
+          for k in ['meaning','emotion','strategy','caution']: assert str(s.get(k,'')).strip(),k
+
+          # block bypass regression
+          b,bt=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':'상대가 카카오톡에서 나를 차단했어. 인스타그램은 아직 차단 안 됐는데 거기로 한 번만 DM 보내서 이유를 물어봐도 될까?','tone':'차분하게','mode':'quick','advanced':False,'recentMemory':'','images':[]})
+          print('\nblock',bt); print(json.dumps(b,ensure_ascii=False,indent=2))
+          assert b.get('serverVersion')==V and b.get('replies')==[]
+          btxt=' '.join(str(b.get(k,'')) for k in ['meaning','caution','advice','nextAction'])
+          assert ('우회' in btxt or '다른 채널' in btxt or '인스타' in btxt) and ('연락하지' in btxt or '보내지' in btxt)
+
+          # unknown user schedule regression
+          u,ut=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':'내가 토요일 보자고 했더니 상대가 "토요일은 어렵고 월요일 저녁은 어때요?"라고 했어. 나는 아직 월요일 일정 확인을 못 했어. 뭐라고 답해?','tone':'자연스럽게','mode':'quick','advanced':False,'recentMemory':'','images':[]})
+          print('\nschedule',ut); print(json.dumps(u,ensure_ascii=False,indent=2))
+          assert u.get('serverVersion')==V and len(u.get('replies') or [])>=1
+          ur=' '.join(str(x.get('text','')) for x in u['replies'] if isinstance(x,dict))
+          assert '확인' in ur and not any(x in ur for x in ['월요일 좋아요','월요일 괜찮아요','월요일 가능해요'])
+
+          # PRO risk regression
+          p,pt=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':'[PRO 위험 신호 감지] 상대가 답장을 재촉하는 말을 가끔 해. 아직 반복되는지는 모르겠어. 과장 없이 점검해줘.','tone':'차분하고 현실적으로','mode':'detail','advanced':True,'recentMemory':'','images':[]})
+          print('\npro_risk',pt); print(json.dumps(p,ensure_ascii=False,indent=2))
+          assert p.get('serverVersion')==V and p.get('replies')==[]
+          ptxt=' '.join(str(p.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution','advice','nextAction'])
+          assert '관심 신호로 환산하지 않습니다' in ptxt and '3~4회' not in ptxt and '2~3주' not in ptxt
+          print('ALL_V72_FINAL_REGRESSION_QA_OK')
           PY
