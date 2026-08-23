@@ -1,1 +1,1 @@
-Run Somtok v33 targeted retest and automatic continuation.
+Run Somtok v34 targeted retest and fresh real-user cases.
