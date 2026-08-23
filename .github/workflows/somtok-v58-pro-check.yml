@@ -1,4 +1,4 @@
-name: somtok-v58-pro-production-qa
+name: somtok-v59-pro-production-qa
 
 on:
   pull_request:
@@ -9,14 +9,14 @@ jobs:
     if: github.event.pull_request.head.ref == 'agent/somtok-v58-pro-check'
     runs-on: ubuntu-latest
     steps:
-      - name: Verify version and test real PRO responses
+      - name: Verify version and real grounded PRO responses
         shell: bash
         run: |
           python - <<'PY'
           import json,time,urllib.request
           version_url='https://lovetalk-api.onrender.com/api/version'
           api_url='https://lovetalk-api.onrender.com/api/love-analysis'
-          expected='2026-08-23-potentia-v58-fast-pro-analysis'
+          expected='2026-08-23-potentia-v59-fast-pro-grounding'
           with urllib.request.urlopen(version_url,timeout=20) as r:
               version=json.loads(r.read().decode()).get('version')
           print('SERVER_VERSION',version)
@@ -30,6 +30,7 @@ jobs:
             ('memory', '[PRO 상대별 AI 기억 강화] 사용자가 직접 확인한 사실: 상대는 커피를 좋아한다고 말했고 최근 두 대화에서 상대가 질문을 했어. 저장할 사실과 추론을 구분해줘.')
           ]
           required=['meaning','emotion','flow','strategy','caution','advice','nextAction']
+          outputs={}
           for name,message in cases:
               payload={'relation':'썸','nickname':'테스트상대','message':message,'tone':'차분하고 현실적으로','mode':'detail','advanced':True,'recentMemory':'','images':[]}
               req=urllib.request.Request(api_url,data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
@@ -37,14 +38,40 @@ jobs:
               with urllib.request.urlopen(req,timeout=40) as r:
                   d=json.loads(r.read().decode())
               elapsed=round(time.perf_counter()-t0,2)
+              outputs[name]=d
               print('\n=== CASE',name,'ELAPSED',elapsed,'s ===')
               print(json.dumps(d,ensure_ascii=False,indent=2))
               assert d.get('serverVersion')==expected
               missing=[k for k in required if not str(d.get(k,'')).strip()]
               assert not missing,(name,'missing',missing)
               assert d.get('confidence') in ['높음','중간','낮음'],(name,d.get('confidence'))
-              if name not in ['monthly','memory']:
-                  assert isinstance(d.get('replies'),list),(name,'replies_not_list')
+              assert isinstance(d.get('replies'),list),(name,'replies_not_list')
               assert elapsed <= 30,(name,'too_slow',elapsed)
-          print('\nALL_V58_PRO_TESTS_OK')
+
+              combined=' '.join(str(d.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution','dontSend','advice','nextAction'])
+              reply_text=' '.join(str(x.get('text','')) for x in (d.get('replies') or []) if isinstance(x,dict))
+              if name=='deep':
+                  assert '[' not in reply_text and '(상대' not in reply_text and '(답변' not in reply_text,(name,'placeholder_reply',reply_text)
+                  assert '저도 어제' not in reply_text and '날씨가 좋네요' not in reply_text,(name,'invented_example',reply_text)
+                  assert '2~3일' not in d.get('nextAction',''),(name,'invented_timing')
+              elif name=='confession':
+                  assert d.get('replies')==[],(name,'should_not_generate_message',d.get('replies'))
+                  assert '고백 수용 의사' in combined or '고백 타이밍' in combined
+              elif name=='date':
+                  assert len(d.get('replies') or [])==3,(name,'expected_grounded_replies')
+                  assert '저도' not in reply_text and '자꾸 보고 싶' not in reply_text and '영화 재미있어요' not in reply_text,(name,'invented_user_state',reply_text)
+                  assert '실제 가능한 일정' in d.get('nextAction','') or '가능한 시간' in d.get('nextAction',''),(name,'availability_not_guarded')
+              elif name=='risk':
+                  assert d.get('replies')==[],(name,'analysis_tool_should_not_send')
+                  assert '관심 신호로 환산하지 않습니다' in combined,(name,'interest_inference_not_blocked',combined)
+                  assert '2~3주' not in combined,(name,'invented_observation_period')
+              elif name=='monthly':
+                  assert d.get('replies')==[],(name,'report_should_not_send')
+                  assert '횟수와 비율' in combined or '빈도' in combined,(name,'insufficient_counts_not_acknowledged')
+                  assert '2~3주' not in combined,(name,'invented_wait_period')
+              elif name=='memory':
+                  assert d.get('replies')==[],(name,'memory_tool_should_not_send')
+                  assert '감정 가설' in combined or 'AI 추론' in combined,(name,'fact_inference_separation_missing')
+                  assert '상대 메시지' not in d.get('nextAction',''),(name,'irrelevant_reply_prompt')
+          print('\nALL_V59_PRO_TESTS_OK')
           PY
