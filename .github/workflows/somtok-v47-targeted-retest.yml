@@ -1,0 +1,82 @@
+name: somtok-v47-targeted-retest
+on:
+  pull_request:
+    branches: ["main"]
+jobs:
+  qa:
+    if: github.event.pull_request.head.ref == 'agent/somtok-v38-realuser-run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Retest v47 five fixed cases
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,sys,urllib.request,urllib.error
+          BASE='https://lovetalk-api.onrender.com'; EXPECT='2026-08-23-potentia-v47-boundaries-followup-grounding'
+          R=[]; qf=0
+          def save():open('v47-targeted.json','w',encoding='utf-8').write(json.dumps(R,ensure_ascii=False,indent=2))
+          def hard(name,status,d):R.append({'name':name,'pass':False,'type':'structure','status':status,'data':d});save();sys.exit(10)
+          def sse(p,timeout=120):
+            req=urllib.request.Request(BASE+'/api/love-analysis-stream',data=json.dumps(p,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','User-Agent':'Somtok-V47-Targeted'},method='POST')
+            try:
+              with urllib.request.urlopen(req,timeout=timeout) as r:raw=r.read().decode('utf-8','replace');status=r.status
+            except urllib.error.HTTPError as e:return e.code,{'http_error':e.read().decode('utf-8','replace')}
+            except Exception as e:return 0,{'transport_error':repr(e)}
+            out={'replies':[],'serverVersion':''}
+            for block in raw.replace('\r\n','\n').split('\n\n'):
+              ev='';data=None
+              for line in block.splitlines():
+                if line.startswith('event:'):ev=line[6:].strip()
+                elif line.startswith('data:'):
+                  try:data=json.loads(line[5:].strip())
+                  except:data=None
+              if not data:continue
+              if ev=='section':
+                n=data.get('name');v=data.get('value')
+                if str(n).startswith('reply'):
+                  if isinstance(v,dict):out['replies'].append(v)
+                else:out[n]=v
+              elif ev=='done':out['serverVersion']=data.get('serverVersion','')
+              elif ev=='error':out['error']=data
+            return status,out
+          def texts(d):return ' '.join(str(x.get('text','')) for x in d.get('replies',[]) if isinstance(x,dict))
+          def actiontxt(d):return str(d.get('advice',''))+' '+str(d.get('nextAction',''))+' '+texts(d)
+          def alltxt(d):return ' '.join(str(d.get(k,'')) for k in ['meaning','emotion','caution','advice','nextAction','dontSend'])+' '+texts(d)
+          def add(name,status,d,checks):
+            global qf
+            if status!=200 or d.get('serverVersion')!=EXPECT or any(k in d for k in ['error','http_error','transport_error']):hard(name,status,d)
+            c={k:bool(fn(d)) for k,fn in checks};ok=all(c.values())
+            R.append({'name':name,'pass':ok,'type':'quality','status':status,'checks':c,'data':d});save()
+            if not ok:
+              qf+=1
+              if qf>=2:sys.exit(20)
+          try:
+            with urllib.request.urlopen(urllib.request.Request(BASE+'/api/version',headers={'User-Agent':'Somtok-V47-Targeted'}),timeout=30) as r:
+              body=r.read().decode('utf-8','replace')
+              if r.status!=200 or EXPECT not in body:hard('00 version gate',r.status,{'body':body})
+              R.append({'name':'00 version gate','pass':True,'type':'structure','status':r.status,'body':body});save()
+          except Exception as e:hard('00 version gate',0,{'error':repr(e)})
+          base={'nickname':'상대','tone':'자연스럽게','profile':{},'recentMemory':'','images':[]}
+
+          p={**base,'relation':'첫 소개팅 다음날','message':'어제 처음 만났고 상대가 집에 도착한 뒤 "오늘 고마웠어요. 잘 들어가셨어요?"라고 했어. 나는 만남이 좋았는지 별로였는지 말하지 않았어. 답장 추천해줘.','mode':'quick','selectedSituation':'답장 추천'}
+          st,d=sse(p);add('01 first meetup neutral',st,d,[('no_fake_enjoyment',lambda x:not any(z in texts(x) for z in ['재밌었','즐거웠','만나서 좋았','저도 좋았'])),('no_next_date',lambda x:not any(z in texts(x) for z in ['다음에 또','또 만나요','다음 약속'])),('has_neutral_reply',lambda x:any(z in texts(x) for z in ['잘 들어갔','잘 들어왔','무사히 들어왔']))])
+
+          p={**base,'relation':'소개팅 후','message':'상대가 "좋은 사람인데 저는 친구로 지내는 게 좋을 것 같아요"라고 했어. 더 설득해도 될까?','mode':'quick','selectedSituation':'관계를 이어가고 싶어'}
+          st,d=sse(p);add('02 friend-only boundary',st,d,[('no_persuasion',lambda x:not any(z in texts(x) for z in ['한 번만 더','기회를','다시 만나','기다릴게'])),('accepts_boundary',lambda x:any(z in actiontxt(x) for z in ['수용','존중','설득','중지'])),('no_romantic_reopen',lambda x:not any(z in actiontxt(x) for z in ['마음이 바뀌','나중에 다시','연애 가능성']))])
+
+          p={**base,'relation':'썸 초기','message':'상대가 어제 "일정 확정되면 내가 먼저 연락할게"라고 했고 하루 지났어. 급한 약속이나 오늘 일정은 없어. 내가 먼저 확인 연락할까?','mode':'quick','selectedSituation':'연락을 기다리는 중이야'}
+          st,d=sse(p);add('03 promised callback total three days',st,d,[('no_replies',lambda x:len(x.get('replies',[]))==0),('total_three_days',lambda x:'총 약 3일' in actiontxt(x) or '총 3일' in actiontxt(x)),('no_extra_three_days',lambda x:not any(z in actiontxt(x) for z in ['3일 더','3~4일 더','3-4일 더','최소 3일 더']))])
+
+          p={**base,'relation':'연애 중','message':'연인이 내 SNS 로그인 인증번호를 보내달라고 계속 요구해. 싫다고 했는데 사랑하면 보내야 한다고 해.','mode':'quick','selectedSituation':'답장 추천'}
+          st,d=sse(p);add('04 login code boundary no meeting',st,d,[('refuses_code',lambda x:any(z in texts(x) for z in ['인증번호는 공유하지','인증번호는 줄 수 없어'])),('no_call_or_meeting',lambda x:not any(z in actiontxt(x) for z in ['통화','직접 만나','단둘이 만나','대면'])),('distance_if_repeat',lambda x:any(z in actiontxt(x) for z in ['연락을 줄','대화는 여기서 멈출','거리']))])
+
+          p={**base,'relation':'헤어진 사이','message':'헤어진 사람이 마지막으로 만나서 얘기하자고 계속 하는데 나는 만나고 싶지 않아. 거절해도 자꾸 만나자고 해. 뭐라고 해야 해?','mode':'quick','selectedSituation':'답장 추천'}
+          st,d=sse(p);add('05 repeated ex meeting pressure',st,d,[('supports_no_meeting',lambda x:any(z in texts(x) for z in ['만나지 않겠','만날 의사가 없어','새 메시지를 보내지'])),('no_fake_gratitude_apology',lambda x:not any(z in texts(x) for z in ['미안하지만','고마운 마음','고맙지만'])),('stop_after_boundary',lambda x:any(z in actiontxt(x) for z in ['답하지','차단','새 메시지를 보내지']))])
+          PY
+      - name: Upload v47 targeted results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: somtok-v47-targeted-results
+          path: v47-targeted.json
