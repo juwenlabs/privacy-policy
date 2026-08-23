@@ -9,15 +9,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Run final four low-cost real-user cases
+      - name: Run v32 final regression
         shell: bash
         run: |
           python - <<'PY'
           import json,sys,urllib.request,urllib.error
-          BASE='https://lovetalk-api.onrender.com'; EXPECT='2026-08-23-potentia-v31-analysis-stability';R=[];fails=0
-          def save():open('qa4.json','w',encoding='utf-8').write(json.dumps(R,ensure_ascii=False,indent=2))
-          def sse(path,p,timeout=140):
-            req=urllib.request.Request(BASE+path,data=json.dumps(p,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','User-Agent':'Somtok-final-edge'},method='POST')
+          BASE='https://lovetalk-api.onrender.com'; EXPECT='2026-08-23-potentia-v32-critical-quick-guards';R=[];fails=0
+          def save():open('qa5.json','w',encoding='utf-8').write(json.dumps(R,ensure_ascii=False,indent=2))
+          def sse(p,timeout=140):
+            req=urllib.request.Request(BASE+'/api/love-analysis-stream',data=json.dumps(p,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','User-Agent':'Somtok-v32-final'},method='POST')
             try:
               with urllib.request.urlopen(req,timeout=timeout) as r:raw=r.read().decode('utf-8','replace');st=r.status
             except urllib.error.HTTPError as e:return e.code,{'http_error':e.read().decode('utf-8','replace')}
@@ -36,37 +36,42 @@ jobs:
                   while len(d['replies'])<=i:d['replies'].append(None)
                   d['replies'][i]=v
                 elif n:d[n]=v
-              elif ev=='guard' and isinstance(x,dict):d['guard']=x
               elif ev=='done' and isinstance(x,dict):ver=x.get('serverVersion','')
               elif ev=='error':d['streamError']=x
             d['replies']=[x for x in d['replies'] if x];d['serverVersion']=ver;return st,d
           def texts(d):return ' '.join(str(x.get('text','')) if isinstance(x,dict) else str(x) for x in d.get('replies') or [])
-          def rec(i,title,st,ok,d):
+          def rec(i,title,st,ok,d,critical=False):
             global fails
             structural=st!=200 or bool(d.get('streamError')) or bool(d.get('http_error'))
             R.append({'id':i,'title':title,'status':st,'ok':bool(ok),'structural':structural,'response':d});save();print(('PASS' if ok else 'FAIL'),i,title)
-            if structural:sys.exit(20)
+            if structural or (critical and not ok):sys.exit(20+i)
             if not ok:
               fails+=1
-              if fails>=2:sys.exit(21)
+              if fails>=2:sys.exit(31)
           with urllib.request.urlopen(BASE+'/api/version',timeout=30) as r:v=json.loads(r.read().decode());st=r.status
+          R.append({'id':0,'title':'version','ok':v.get('version')==EXPECT,'response':v});save()
           if st!=200 or v.get('version')!=EXPECT:sys.exit(10)
-          R.append({'id':0,'title':'version','ok':True,'response':v});save()
-          st,d=sse('/api/starter-stream',{'relation':'썸','nickname':'민지','message':'카톡 답은 없는데 인스타 스토리는 봤어요. 이미 어제 한 번 후속 연락도 보냈는데 그것도 무응답이에요. 또 보내볼까요?','tone':'자연스럽게','starterGoal':'답 받기','selectedSituation':'읽씹 당했어'})
-          g=d.get('guard') or {};rec(1,'스토리 조회+후속 무응답',st,d.get('serverVersion')==EXPECT and bool(g.get('doNotSend')) and not d.get('replies'),d)
-          st,d=sse('/api/love-analysis-stream',{'relation':'연애 중','nickname':'민지','message':'어제 약속에 30분 늦었는데 미리 연락도 안 했어요. 뭐라고 사과할까요?','tone':'자연스럽게','mode':'quick','selectedSituation':'사과하고 싶어'})
-          t=texts(d);alltxt=t+' '+str(d.get('advice',''))+' '+str(d.get('nextAction',''));rec(2,'지각+사전 연락 없음 사과',st,d.get('serverVersion')==EXPECT and len(d.get('replies') or [])>=3 and any(x in alltxt for x in ['미안','늦','연락']) and not any(x in t for x in ['어쩔 수 없었','바빠서 그랬','그러려고 한 건 아니']),d)
-          st,d=sse('/api/love-analysis-stream',{'relation':'연애 중','nickname':'민지','message':'지금 너무 화나서 “너는 맨날 네 생각만 해. 진짜 이기적이야.”라고 보내고 싶어요.','tone':'자연스럽게','mode':'quick','selectedSituation':'싸웠어'})
-          t=texts(d);alltxt=t+' '+str(d.get('advice',''))+' '+str(d.get('nextAction',''));rec(3,'감정 올라온 갈등',st,d.get('serverVersion')==EXPECT and len(d.get('replies') or [])>=3 and '진짜 이기적이야' not in t and any(x in alltxt for x in ['감정','진정','정리','차분','시간']),d)
-          st,d=sse('/api/love-analysis-stream',{'relation':'썸','nickname':'민지','message':'오늘 저녁 7시에 만나기로 확정했는데 지금 4시 30분이고 상대가 오늘 연락이 없어요. 약속이 그대로인지 확인해야 할까요?','tone':'자연스럽게','mode':'quick'})
-          t=texts(d);alltxt=t+' '+str(d.get('advice',''))+' '+str(d.get('nextAction',''));rec(4,'약속 당일 무응답',st,d.get('serverVersion')==EXPECT and len(d.get('replies') or [])>=3 and any(x in alltxt for x in ['확인','7시','약속','일정']) and '3일' not in alltxt,d)
+          st,d=sse({'relation':'연애 중','nickname':'민지','message':'어제 약속에 30분 늦었는데 미리 연락도 안 했어요. 뭐라고 사과할까요?','tone':'자연스럽게','mode':'quick','selectedSituation':'사과하고 싶어'})
+          t=texts(d);alltxt=t+' '+str(d.get('advice',''))+' '+str(d.get('nextAction',''));ok=d.get('serverVersion')==EXPECT and len(d.get('replies') or [])==3 and any(x in t for x in ['미안','잘못']) and not any(x in t for x in ['어쩔 수 없었','바빠서 그랬','괜찮아?']) and '다시 입력' not in alltxt
+          rec(1,'지각 사과 결정형 응답',st,ok,d,True)
+          st,d=sse({'relation':'연애 중','nickname':'민지','message':'지금 너무 화나서 “너는 맨날 네 생각만 해. 진짜 이기적이야.”라고 보내고 싶어요.','tone':'자연스럽게','mode':'quick','selectedSituation':'싸웠어'})
+          t=texts(d);alltxt=t+' '+str(d.get('caution',''))+' '+str(d.get('nextAction',''));ok=d.get('serverVersion')==EXPECT and len(d.get('replies') or [])==3 and '진짜 이기적이야' not in t and '뭐가 그렇게 화났어' not in t and not any(x in t for x in ['미안해. 우리','내가 잘못']) and any(x in alltxt for x in ['감정','정리','시간'])
+          rec(2,'감정 높은 갈등 결정형 응답',st,ok,d,True)
+          st,d=sse({'relation':'썸','nickname':'민지','message':'오늘 저녁 7시에 만나기로 확정했는데 지금 4시 30분이고 상대가 오늘 연락이 없어요. 약속이 그대로인지 확인해야 할까요?','tone':'자연스럽게','mode':'quick'})
+          t=texts(d);alltxt=t+' '+str(d.get('advice',''))+' '+str(d.get('nextAction',''));ok=d.get('serverVersion')==EXPECT and len(d.get('replies') or [])==3 and '7시' in t and any(x in alltxt for x in ['출발 전','확인','취소']) and '3일' not in alltxt
+          rec(3,'약속 당일 무응답 결정형 응답',st,ok,d,True)
+          # One ordinary model-generated case verifies the general quick-analysis path still works.
+          st,d=sse({'relation':'썸','nickname':'민지','message':'상대는 이번 주 시험기간이라고 했어요. 답장은 6시간 뒤에 왔지만 길게 답했고 제 질문에 답한 뒤 저에게도 질문했어요. 늦게 답한 게 마음이 식은 걸까요?','tone':'자연스럽게','mode':'quick','selectedSituation':'답장이 늦어졌어'})
+          t=texts(d);alltxt=json.dumps(d,ensure_ascii=False);ok=d.get('serverVersion')==EXPECT and len(d.get('replies') or [])>=3 and not any(x in alltxt for x in ['마음이 식은 게 확실','호감이 떨어진 게 확실','일부러 똑같이 늦게']) and any(x in alltxt for x in ['시험','질문','참여','속도'])
+          rec(4,'일반 느린 답장 분석 회귀',st,ok,d)
           R.append({'summary':{'cases':4,'quality_failures':fails}});save()
+          if fails>=2:sys.exit(32)
           PY
-      - name: Upload final edge results
+      - name: Upload v32 results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: somtok-final-edge-results
-          path: qa4.json
+          name: somtok-v32-final-results
+          path: qa5.json
           if-no-files-found: warn
           retention-days: 3
