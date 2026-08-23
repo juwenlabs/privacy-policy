@@ -1,1 +1,1 @@
-Run staged Somtok v43 real-user QA.
+Continue staged Somtok v43 real-user QA cases 3-8.
