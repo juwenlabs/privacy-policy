@@ -1,1 +1,1 @@
-Run staged Somtok v39 real-user QA after Korean self-harm fix.
+Run targeted Somtok v40 continuation QA.
