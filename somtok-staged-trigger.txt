@@ -1,1 +1,1 @@
-Re-run Somtok v31 targeted regression with corrected QA matcher.
+Run final four low-cost Somtok real-user edge cases.
