@@ -1,1 +1,1 @@
-Run staged Somtok real-user QA against production API v29.
+Run staged Somtok real-user QA against production API v30.
