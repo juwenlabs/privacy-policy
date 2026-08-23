@@ -1,1 +1,1 @@
-Run staged Somtok v35 real-user QA.
+Run staged Somtok v36 apology retest and continuation QA.
