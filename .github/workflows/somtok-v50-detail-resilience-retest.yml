@@ -1,0 +1,64 @@
+name: somtok-v50-detail-resilience-retest
+on:
+  pull_request:
+    branches: ["main"]
+jobs:
+  qa:
+    if: github.event.pull_request.head.ref == 'agent/somtok-v38-realuser-run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Retest v50 detailed analysis completion
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,sys,urllib.request,urllib.error
+          BASE='https://lovetalk-api.onrender.com'; EXPECT='2026-08-23-potentia-v50-detail-completion-resilience'
+          R=[]
+          def save():open('v50-detail.json','w',encoding='utf-8').write(json.dumps(R,ensure_ascii=False,indent=2))
+          def sse(p,timeout=190):
+            req=urllib.request.Request(BASE+'/api/love-analysis-stream',data=json.dumps(p,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','User-Agent':'Somtok-V50-Detail'},method='POST')
+            try:
+              with urllib.request.urlopen(req,timeout=timeout) as r:raw=r.read().decode('utf-8','replace');status=r.status
+            except urllib.error.HTTPError as e:return e.code,{'http_error':e.read().decode('utf-8','replace')}
+            except Exception as e:return 0,{'transport_error':repr(e)}
+            out={'replies':[],'serverVersion':''}
+            for block in raw.replace('\r\n','\n').split('\n\n'):
+              ev='';data=None
+              for line in block.splitlines():
+                if line.startswith('event:'):ev=line[6:].strip()
+                elif line.startswith('data:'):
+                  try:data=json.loads(line[5:].strip())
+                  except:data=None
+              if not data:continue
+              if ev=='section':
+                n=data.get('name');v=data.get('value')
+                if str(n).startswith('reply'):
+                  if isinstance(v,dict):out['replies'].append(v)
+                else:out[n]=v
+              elif ev=='done':out['serverVersion']=data.get('serverVersion','')
+              elif ev=='error':out['error']=data
+            return status,out
+          def texts(d):return ' '.join(str(x.get('text','')) for x in d.get('replies',[]) if isinstance(x,dict))
+          try:
+            with urllib.request.urlopen(urllib.request.Request(BASE+'/api/version',headers={'User-Agent':'Somtok-V50-Detail'}),timeout=30) as r:
+              body=r.read().decode('utf-8','replace')
+              if r.status!=200 or EXPECT not in body:
+                R.append({'name':'00 version','pass':False,'status':r.status,'body':body});save();sys.exit(10)
+          except Exception as e:
+            R.append({'name':'00 version','pass':False,'error':repr(e)});save();sys.exit(10)
+          base={'nickname':'상대','tone':'자연스럽게','profile':{},'recentMemory':'','images':[]}
+          p={**base,'relation':'썸 초기','message':'최근에는 상대가 먼저 연락한 적이 두 번 있고 나도 두 번 먼저 연락했어. 서로 질문도 몇 번 주고받았고 답장도 대체로 이어졌어. 아직 둘 다 약속을 제안한 적은 없어. 지금 관계를 상세히 봐줘.','mode':'detail','selectedSituation':'썸인지 헷갈려'}
+          st,d=sse(p)
+          structure=(st==200 and d.get('serverVersion')==EXPECT and not any(k in d for k in ['error','http_error','transport_error']) and bool(d.get('nextAction')) and d.get('confidence') in ['높음','중간','낮음'])
+          quality=(structure and any(z in (str(d.get('meaning',''))+' '+str(d.get('flow',''))) for z in ['서로','양방향','상대가 먼저','참여']) and not any(z in (str(d.get('meaning',''))+' '+str(d.get('emotion',''))) for z in ['썸이 확실','호감이 확실','서로 좋아하고','연애로 갈 가능성이 높']) and not any(z in texts(d) for z in ['이번 주','다음 주','주말','토요일','일요일']))
+          R.append({'name':'01 reciprocal participation detail','pass':quality,'type':'quality' if structure else 'structure','status':st,'data':d});save()
+          if not structure:sys.exit(10)
+          if not quality:sys.exit(20)
+          PY
+      - name: Upload v50 result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: somtok-v50-detail-result
+          path: v50-detail.json
