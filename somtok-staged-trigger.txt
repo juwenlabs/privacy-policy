@@ -1,1 +1,1 @@
-Run Somtok v30 stage-two real-user QA.
+Run Somtok v31 targeted regression and continue on pass.
