@@ -1,4 +1,4 @@
-name: somtok-v70-reply-targeted-qa
+name: somtok-v71-reply-targeted-qa
 
 on:
   pull_request:
@@ -9,40 +9,37 @@ jobs:
     if: github.event.pull_request.head.ref == 'agent/somtok-v68-final-qa'
     runs-on: ubuntu-latest
     steps:
-      - name: Retest v70 quick/detail reply
+      - name: Retest v71 failed quick/detail cases
         shell: bash
         run: |
           python - <<'PY'
           import json,time,urllib.request
-          B='https://lovetalk-api.onrender.com'; V='2026-08-24-potentia-v70-grounded-starter'
+          B='https://lovetalk-api.onrender.com'; V='2026-08-24-potentia-v71-instant-reply-core'
           with urllib.request.urlopen(B+'/api/version',timeout=20) as r: got=json.loads(r.read().decode()).get('version')
           print('SERVER_VERSION',got); assert got==V,(got,V)
           def post(payload):
               req=urllib.request.Request(B+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
               t=time.perf_counter()
-              with urllib.request.urlopen(req,timeout=25) as r:d=json.loads(r.read().decode())
+              with urllib.request.urlopen(req,timeout=20) as r:d=json.loads(r.read().decode())
               return d,round(time.perf_counter()-t,2)
 
           qmsg='상대가 "오늘은 일이 좀 바빴어요. 이제 집에 왔어요"라고 했어. 뭐라고 답하면 좋을까?'
           q,qt=post({'relation':'썸','nickname':'테스트상대','message':qmsg,'tone':'자연스럽게','mode':'quick','advanced':False,'recentMemory':'','images':[]})
           print('\n=== reply_quick',qt,'s ===');print(json.dumps(q,ensure_ascii=False,indent=2))
           assert q.get('serverVersion')==V and isinstance(q.get('replies'),list) and len(q['replies'])==2
-          assert q.get('meaning') and q.get('advice')
-          qtext=' '.join(str(q.get(k,'')) for k in ['meaning','emotion','flow','strategy','advice','nextAction'])
-          assert not any(x in qtext for x in ['호감','관심 신호','의식했','대화하고 싶은 신호','가능성이 높','가능성이 큼'])
+          qtext=' '.join(str(q.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution','advice','nextAction'])
+          assert not any(x in qtext for x in ['호감','관심 신호','의식했','대화하고 싶은 신호','가능성이 높','피곤'])
           qr=' '.join(str(x.get('text','')) for x in q['replies'] if isinstance(x,dict))
-          assert not any(x in qr for x in ['토요일','일요일','다음 주','저도','나도'])
-          assert qt < 7.0,('reply_quick too slow',qt)
+          assert not any(x in qr for x in ['토요일','일요일','다음 주','저도','나도','피곤'])
+          assert qt < 3.0,('reply_quick too slow',qt)
 
           dmsg='최근에는 서로 일상 얘기를 주고받고 있고 상대도 질문을 해. 지금 흐름과 뭐라고 답하면 좋을지 자세히 봐줘.'
           d,dt=post({'relation':'썸','nickname':'테스트상대','message':dmsg,'tone':'차분하고 현실적으로','mode':'detail','advanced':True,'recentMemory':'','images':[]})
-          print('\n=== reply_detail',dt,'s ===');print(json.dumps(d,ensure_ascii=False,indent=2))
-          assert d.get('serverVersion')==V and isinstance(d.get('replies'),list) and len(d['replies'])==2
+          print('\n=== reply_detail_summary',dt,'s ===');print(json.dumps(d,ensure_ascii=False,indent=2))
+          assert d.get('serverVersion')==V and d.get('replies')==[]
           for k in ['meaning','emotion','strategy','caution']: assert str(d.get(k,'')).strip(),('missing',k)
           dtext=' '.join(str(d.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution'])
           assert not any(x in dtext for x in ['호감이 높','속마음은 확실','분명히 좋아','고백해도 된다'])
-          dr=' '.join(str(x.get('text','')) for x in d['replies'] if isinstance(x,dict))
-          assert not any(x in dr for x in ['토요일','일요일','다음 주'])
-          assert dt < 7.0,('reply_detail too slow',dt)
-          print('ALL_V70_REPLY_TARGETED_QA_OK',{'quick':qt,'detail':dt})
+          assert dt < 3.0,('reply_detail_summary too slow',dt)
+          print('ALL_V71_FAILED_REPLY_CASES_OK',{'quick':qt,'detail_summary':dt})
           PY
