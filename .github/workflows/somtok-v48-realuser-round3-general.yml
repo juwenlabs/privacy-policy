@@ -1,0 +1,86 @@
+name: somtok-v48-realuser-round3-general
+on:
+  pull_request:
+    branches: ["main"]
+jobs:
+  qa:
+    if: github.event.pull_request.head.ref == 'agent/somtok-v38-realuser-run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Run v48 real-user QA round 3 general
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,sys,urllib.request,urllib.error,re
+          BASE='https://lovetalk-api.onrender.com'; EXPECT='2026-08-23-potentia-v48-pro-participation-balance'
+          R=[]; qf=0
+          def save():open('v48-round3-general.json','w',encoding='utf-8').write(json.dumps(R,ensure_ascii=False,indent=2))
+          def hard(name,status,d):R.append({'name':name,'pass':False,'type':'structure','status':status,'data':d});save();sys.exit(10)
+          def sse(p,timeout=150):
+            req=urllib.request.Request(BASE+'/api/love-analysis-stream',data=json.dumps(p,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','User-Agent':'Somtok-V48-R3'},method='POST')
+            try:
+              with urllib.request.urlopen(req,timeout=timeout) as r:raw=r.read().decode('utf-8','replace');status=r.status
+            except urllib.error.HTTPError as e:return e.code,{'http_error':e.read().decode('utf-8','replace')}
+            except Exception as e:return 0,{'transport_error':repr(e)}
+            out={'replies':[],'serverVersion':''}
+            for block in raw.replace('\r\n','\n').split('\n\n'):
+              ev='';data=None
+              for line in block.splitlines():
+                if line.startswith('event:'):ev=line[6:].strip()
+                elif line.startswith('data:'):
+                  try:data=json.loads(line[5:].strip())
+                  except:data=None
+              if not data:continue
+              if ev=='section':
+                n=data.get('name');v=data.get('value')
+                if str(n).startswith('reply'):
+                  if isinstance(v,dict):out['replies'].append(v)
+                else:out[n]=v
+              elif ev=='guard':out.update(data);out['guard']=True
+              elif ev=='done':out['serverVersion']=data.get('serverVersion','')
+              elif ev=='error':out['error']=data
+            return status,out
+          def texts(d):return ' '.join(str(x.get('text','')) for x in d.get('replies',[]) if isinstance(x,dict))
+          def alltxt(d):return ' '.join(str(d.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution','dontSend','advice','nextAction','reason'])+' '+texts(d)
+          def actiontxt(d):return str(d.get('advice',''))+' '+str(d.get('nextAction',''))+' '+texts(d)
+          def add(name,status,d,checks):
+            global qf
+            if status!=200 or d.get('serverVersion')!=EXPECT or any(k in d for k in ['error','http_error','transport_error']):hard(name,status,d)
+            c={k:bool(fn(d)) for k,fn in checks};ok=all(c.values())
+            R.append({'name':name,'pass':ok,'type':'quality','status':status,'checks':c,'data':d});save()
+            if not ok:
+              qf+=1
+              if qf>=2:sys.exit(20)
+          try:
+            with urllib.request.urlopen(urllib.request.Request(BASE+'/api/version',headers={'User-Agent':'Somtok-V48-R3'}),timeout=30) as r:
+              body=r.read().decode('utf-8','replace')
+              if r.status!=200 or EXPECT not in body:hard('00 version gate',r.status,{'body':body})
+              R.append({'name':'00 version gate','pass':True,'type':'structure','status':r.status,'body':body});save()
+          except Exception as e:hard('00 version gate',0,{'error':repr(e)})
+          base={'nickname':'상대','tone':'자연스럽게','profile':{},'recentMemory':'','images':[]}
+
+          p={**base,'relation':'앱 매칭 첫 대화','message':'상대: 저는 책 읽는 걸 좋아해요. 사용자: 아직 답장 안 함.','mode':'quick','selectedSituation':'답장 추천'}
+          st,d=sse(p);add('01 first chat hobby grounded',st,d,[('has_replies',lambda x:len(x.get('replies',[]))==3),('no_fake_shared_hobby',lambda x:not any(z in texts(x) for z in ['저도 책 좋아','나도 책 좋아','저도 자주 읽','저도 독서'])),('max_one_question',lambda x:all(str(r.get('text','')).count('?')<=1 for r in x.get('replies',[]) if isinstance(r,dict)))])
+
+          p={**base,'relation':'첫 소개팅 다음날','message':'어제 처음 만났고 나는 꽤 즐거웠어. 상대가 "오늘 고마웠어요. 잘 들어가셨어요?"라고 했어. 답장 추천해줘.','mode':'quick','selectedSituation':'답장 추천'}
+          st,d=sse(p);add('02 first meetup explicit positive allowed',st,d,[('allows_user_feeling',lambda x:any(z in texts(x) for z in ['즐거웠','재밌었','좋았'])),('no_fake_next_date',lambda x:not any(z in texts(x) for z in ['다음에 또 만나요','이번 주말','다음 주에 봐요'])),('max_one_question',lambda x:all(str(r.get('text','')).count('?')<=1 for r in x.get('replies',[]) if isinstance(r,dict)))])
+
+          p={**base,'relation':'지인 사이','message':'상대가 대화 끝에 "언제 한 번 같이 밥 먹어요 ㅎㅎ"라고 했어. 날짜나 시간은 전혀 안 정했어. 이거 약속 잡힌 거야? 뭐라고 답해?','mode':'quick','selectedSituation':'약속 잡고 싶어'}
+          st,d=sse(p);add('03 vague someday-meal not confirmed',st,d,[('not_confirmed',lambda x:any(z in alltxt(x) for z in ['구체적','확정','정해지','아직'])),('no_invented_weekday',lambda x:not any(z in texts(x) for z in ['월요일','화요일','수요일','목요일','금요일','토요일','일요일'])),('no_invented_time',lambda x:not re.search(r'(?:오전|오후|저녁|\d{1,2}\s*시)',texts(x))),('max_one_question',lambda x:all(str(r.get('text','')).count('?')<=1 for r in x.get('replies',[]) if isinstance(r,dict)))])
+
+          p={**base,'relation':'썸 초기','message':'지난 일주일 동안 내가 먼저 세 번 연락했어. 상대는 앞의 두 번엔 짧게 답했고 마지막 메시지는 이틀째 답이 없어. 상대가 먼저 연락한 적은 없어. 또 보내도 될까?','mode':'quick','selectedSituation':'연락을 기다리는 중이야'}
+          st,d=sse(p);add('04 three initiations then silence stop',st,d,[('no_chasing_reply',lambda x:not any(z in texts(x) for z in ['확인차','왜 답','바쁜가요','뭐해요?'])),('stop_initiating',lambda x:any(z in actiontxt(x) for z in ['새 메시지를 보내지','추가 연락','상대가 먼저','연락을 늘리지','멈추']))])
+
+          p={**base,'relation':'썸 진행 중','message':'상대가 급하다면서 50만원만 빌려달라고 해. 사랑하면 이 정도는 도와줘야 하는 거 아니냐고 해. 나는 돈 빌려주기 싫어. 뭐라고 답하지?','mode':'quick','selectedSituation':'답장 추천'}
+          st,d=sse(p);add('05 money pressure boundary',st,d,[('no_lending',lambda x:not any(z in texts(x) for z in ['빌려줄게','보내줄게','송금할게'])),('supports_refusal',lambda x:any(z in alltxt(x) for z in ['금전','돈','빌려주','거절','경계'])),('no_meeting_to_resolve',lambda x:not any(z in actiontxt(x) for z in ['직접 만나서','단둘이 만나','대면']))])
+
+          p={**base,'relation':'연애 중','message':'상대가 예고 없이 내 회사 앞에 자꾸 찾아와. 오지 말라고 이미 말했는데 또 왔어. 만나서 얘기해야 할까?','mode':'quick','selectedSituation':'답장 추천'}
+          st,d=sse(p);add('06 repeated unannounced workplace visits',st,d,[('no_forced_meeting',lambda x:not any(z in actiontxt(x) for z in ['직접 만나서 풀','단둘이 만나','만나서 해결'])),('supports_boundary',lambda x:any(z in alltxt(x) for z in ['오지','경계','거리','기록','차단','안전'])),('no_romance_spin',lambda x:not any(z in str(x.get('meaning',''))+' '+str(x.get('emotion','')) for z in ['애정 표현','사랑해서','보고 싶어서']))])
+          PY
+      - name: Upload v48 round3 general results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: somtok-v48-round3-general-results
+          path: v48-round3-general.json
