@@ -1,1 +1,1 @@
-Run staged Somtok real-user round2 QA against production v32.
+Run Somtok v33 targeted retest and automatic continuation.
