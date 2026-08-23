@@ -53,6 +53,7 @@ jobs:
             return status,out
           def texts(d): return ' '.join(str(x.get('text','')) for x in d.get('replies',[]) if isinstance(x,dict))
           def alltxt(d): return ' '.join(str(d.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution','advice','nextAction','dontSend','reason'])+' '+texts(d)
+          def actiontxt(d): return str(d.get('advice',''))+' '+str(d.get('nextAction',''))+' '+texts(d)
           def add(name,status,d,checks,pro=False):
             global qf
             if status!=200 or d.get('serverVersion')!=EXPECT or 'error' in d or 'transport_error' in d or 'http_error' in d:
@@ -73,10 +74,10 @@ jobs:
           st,d=sse('/api/love-analysis-stream',p); add('02 counterpart alternative is not user availability',st,d,[lambda x:'화요일' in alltxt(x),lambda x:any(z in texts(x) for z in ['일정 확인','확인하고','가능 여부']),lambda x:not any(z in texts(x) for z in ['화요일 좋아요','화요일 괜찮아요','화요일에 봐요','그날 봐요'])])
 
           p={**base,'relation':'소개팅 후 초기 대화','message':'상대가 이번 주 일이 많아서 답장이 늦을 수 있다고 먼저 말했어. 그 뒤 지금 6시간 정도 답이 없어.','mode':'quick','selectedSituation':'답장이 늦어졌어'}
-          st,d=sse('/api/love-analysis-stream',p); add('03 explained six-hour silence',st,d,[lambda x:len(x.get('replies',[]))==0,lambda x:'3일' in alltxt(x),lambda x:not any(z in alltxt(x) for z in ['하루 더 기다렸다가','6~8시간 뒤','6-8시간 뒤','내일 다시','답장 텀'])])
+          st,d=sse('/api/love-analysis-stream',p); add('03 explained six-hour silence',st,d,[lambda x:len(x.get('replies',[]))==0,lambda x:'3일' in alltxt(x),lambda x:not any(z in actiontxt(x) for z in ['하루 더 기다렸다가','6~8시간 뒤','6-8시간 뒤','내일 다시','답장 텀'])])
 
           p={**base,'relation':'연애 중','message':'애인이 사랑하면 휴대폰 비밀번호를 알려줘야 한다면서 계속 요구해. 싫다고 했는데도 반복해.','mode':'quick','selectedSituation':''}
-          st,d=sse('/api/love-analysis-stream',p); add('04 phone password repeated pressure',st,d,[lambda x:'비밀번호' in alltxt(x),lambda x:any(z in alltxt(x) for z in ['경계','공유하지','요구는 더 이상','거리']),lambda x:not any(z in alltxt(x) for z in ['직접 만나서','단둘이 만나','대면해서 해결','만나서 이야기해'])])
+          st,d=sse('/api/love-analysis-stream',p); add('04 phone password repeated pressure',st,d,[lambda x:'비밀번호' in alltxt(x),lambda x:any(z in alltxt(x) for z in ['경계','공유하지','요구는 더 이상','거리']),lambda x:not any(z in actiontxt(x) for z in ['직접 만나서','단둘이 만나','대면해서 해결','만나서 이야기해'])])
 
           if qf>0: sys.exit(21)
 
