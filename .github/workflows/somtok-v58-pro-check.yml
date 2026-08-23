@@ -1,0 +1,50 @@
+name: somtok-v58-pro-production-qa
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    if: github.event.pull_request.head.ref == 'agent/somtok-v58-pro-check'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify version and test real PRO responses
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,time,urllib.request
+          version_url='https://lovetalk-api.onrender.com/api/version'
+          api_url='https://lovetalk-api.onrender.com/api/love-analysis'
+          expected='2026-08-23-potentia-v58-fast-pro-analysis'
+          with urllib.request.urlopen(version_url,timeout=20) as r:
+              version=json.loads(r.read().decode()).get('version')
+          print('SERVER_VERSION',version)
+          assert version==expected,(version,expected)
+          cases=[
+            ('deep', '소개팅 이후 서로 일상 이야기를 주고받고 있고 상대도 질문을 해. 지금 관계 흐름을 상세히 봐줘.'),
+            ('confession', '[PRO 고백 타이밍] 최근에는 서로 일상 이야기를 주고받고 있고 상대도 질문을 해. 고백하기 좋은 흐름인지 봐줘.'),
+            ('date', '[PRO 데이트 타이밍] 대화가 자연스럽게 이어지고 있고 상대가 영화 이야기를 했어. 약속 제안 시점을 봐줘.'),
+            ('risk', '[PRO 위험 신호 감지] 상대가 답장을 재촉하는 말을 가끔 해. 아직 반복되는지는 모르겠어. 과장 없이 점검해줘.'),
+            ('monthly', '[PRO 월간 관계 리포트] 최근 30일 기록: 서로 안부 질문을 했고, 내가 먼저 연락한 날도 있으며, 상대가 주제를 이어간 날도 있었어. 행동 변화만 정리해줘.'),
+            ('memory', '[PRO 상대별 AI 기억 강화] 사용자가 직접 확인한 사실: 상대는 커피를 좋아한다고 말했고 최근 두 대화에서 상대가 질문을 했어. 저장할 사실과 추론을 구분해줘.')
+          ]
+          required=['meaning','emotion','flow','strategy','caution','advice','nextAction']
+          for name,message in cases:
+              payload={'relation':'썸','nickname':'테스트상대','message':message,'tone':'차분하고 현실적으로','mode':'detail','advanced':True,'recentMemory':'','images':[]}
+              req=urllib.request.Request(api_url,data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
+              t0=time.perf_counter()
+              with urllib.request.urlopen(req,timeout=40) as r:
+                  d=json.loads(r.read().decode())
+              elapsed=round(time.perf_counter()-t0,2)
+              print('\n=== CASE',name,'ELAPSED',elapsed,'s ===')
+              print(json.dumps(d,ensure_ascii=False,indent=2))
+              assert d.get('serverVersion')==expected
+              missing=[k for k in required if not str(d.get(k,'')).strip()]
+              assert not missing,(name,'missing',missing)
+              assert d.get('confidence') in ['높음','중간','낮음'],(name,d.get('confidence'))
+              if name not in ['monthly','memory']:
+                  assert isinstance(d.get('replies'),list),(name,'replies_not_list')
+              assert elapsed <= 30,(name,'too_slow',elapsed)
+          print('\nALL_V58_PRO_TESTS_OK')
+          PY
