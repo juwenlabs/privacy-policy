@@ -1,4 +1,4 @@
-name: somtok-v61-speed-qa
+name: somtok-v62-speed-qa
 
 on:
   pull_request:
@@ -9,61 +9,46 @@ jobs:
     if: github.event.pull_request.head.ref == 'agent/somtok-v61-speed-qa'
     runs-on: ubuntu-latest
     steps:
-      - name: Measure production v61 PRO speed and quality
+      - name: Measure production v62 PRO speed and quality
         shell: bash
         run: |
           python - <<'PY'
           import json,time,urllib.request,statistics
-          version_url='https://lovetalk-api.onrender.com/api/version'
-          api_url='https://lovetalk-api.onrender.com/api/love-analysis'
-          expected='2026-08-23-potentia-v61-faster-pro-cache-compact'
-          with urllib.request.urlopen(version_url,timeout=20) as r:
-              version=json.loads(r.read().decode()).get('version')
-          print('SERVER_VERSION',version)
-          assert version==expected,(version,expected)
-
-          def call(name,message):
-              payload={'relation':'썸','nickname':'테스트상대','message':message,'tone':'차분하고 현실적으로','mode':'detail','advanced':True,'recentMemory':'','images':[]}
-              req=urllib.request.Request(api_url,data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
-              t0=time.perf_counter()
-              with urllib.request.urlopen(req,timeout=35) as r:
-                  d=json.loads(r.read().decode())
-              elapsed=round(time.perf_counter()-t0,2)
-              print('\n===',name,'ELAPSED',elapsed,'s ===')
-              print(json.dumps(d,ensure_ascii=False,indent=2))
-              assert d.get('serverVersion')==expected,(name,'wrong version')
-              assert d.get('confidence') in ['높음','중간','낮음'],(name,'bad confidence')
-              for key in ['meaning','emotion','flow','strategy','caution','advice','nextAction']:
-                  assert str(d.get(key,'')).strip(),(name,'missing',key)
-              assert isinstance(d.get('replies'),list),(name,'replies not list')
-              combined=' '.join(str(d.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution','dontSend','advice','nextAction'])
-              reply_text=' '.join(str(x.get('text','')) for x in d.get('replies',[]) if isinstance(x,dict))
-              assert '[답변]' not in reply_text and '○○' not in reply_text,(name,'placeholder')
-              assert not any(x in combined for x in ['2~3일','2~3주','최근 2~3일']),(name,'invented period')
-              return elapsed,d
-
-          # First call writes the shared system-prompt cache; subsequent calls can reuse it.
-          cold,_=call('cold-warmup','소개팅 이후 서로 일상 이야기를 주고받고 있고 상대도 질문을 해. 지금 관계 흐름을 상세히 봐줘.')
-          tests=[
-            ('deep-warm','처음 만난 뒤 서로 질문을 주고받고 있지만 다음 약속 이야기는 아직 없어. 지금 관계 흐름을 상세히 봐줘.'),
-            ('date-warm','[PRO 데이트 타이밍] 대화가 자연스럽게 이어지고 있고 상대가 영화 이야기를 했어. 약속 제안 시점을 봐줘.'),
-            ('risk-warm','[PRO 위험 신호 감지] 상대가 답장을 재촉하는 말을 가끔 해. 아직 반복되는지는 모르겠어. 과장 없이 점검해줘.'),
-            ('monthly-warm','[PRO 월간 관계 리포트] 최근 30일 기록: 서로 안부 질문을 했고, 내가 먼저 연락한 날도 있으며, 상대가 주제를 이어간 날도 있었어. 행동 변화만 정리해줘.'),
-            ('memory-warm','[PRO 상대별 AI 기억 강화] 사용자가 직접 확인한 사실: 상대는 커피를 좋아한다고 말했고 최근 두 대화에서 상대가 질문을 했어. 저장할 사실과 추론을 구분해줘.')
+          V='2026-08-23-potentia-v62-fast-pro-short-system'
+          base='https://lovetalk-api.onrender.com'
+          with urllib.request.urlopen(base+'/api/version',timeout=20) as r:
+              got=json.loads(r.read().decode()).get('version')
+          print('SERVER_VERSION',got); assert got==V,(got,V)
+          cases=[
+            ('deep','소개팅 이후 서로 일상 이야기를 주고받고 있고 상대도 질문을 해. 지금 관계 흐름을 상세히 봐줘.'),
+            ('confession','[PRO 고백 타이밍] 최근에는 서로 일상 이야기를 주고받고 있고 상대도 질문을 해. 고백하기 좋은 흐름인지 봐줘.'),
+            ('date','[PRO 데이트 타이밍] 대화가 자연스럽게 이어지고 있고 상대가 영화 이야기를 했어. 약속 제안 시점을 봐줘.'),
+            ('risk','[PRO 위험 신호 감지] 상대가 답장을 재촉하는 말을 가끔 해. 아직 반복되는지는 모르겠어. 과장 없이 점검해줘.'),
+            ('monthly','[PRO 월간 관계 리포트] 최근 30일 기록: 서로 안부 질문을 했고, 내가 먼저 연락한 날도 있으며, 상대가 주제를 이어간 날도 있었어. 행동 변화만 정리해줘.'),
+            ('memory','[PRO 상대별 AI 기억 강화] 사용자가 직접 확인한 사실: 상대는 커피를 좋아한다고 말했고 최근 두 대화에서 상대가 질문을 했어. 저장할 사실과 추론을 구분해줘.')
           ]
-          warm=[]
-          outputs={}
-          for name,msg in tests:
-              t,d=call(name,msg);warm.append(t);outputs[name]=d
-          assert outputs['risk-warm'].get('replies')==[],('risk should be analysis-only')
-          assert '관심 신호로 환산하지 않습니다' in ' '.join(str(outputs['risk-warm'].get(k,'')) for k in outputs['risk-warm'])
-          assert outputs['monthly-warm'].get('replies')==[],('monthly should not make reply cards')
-          assert outputs['memory-warm'].get('replies')==[],('memory should not make reply cards')
-          date_reply=' '.join(str(x.get('text','')) for x in outputs['date-warm'].get('replies',[]) if isinstance(x,dict))
-          assert '저도' not in date_reply and '자꾸 보고 싶' not in date_reply
-          avg=round(statistics.mean(warm),2)
-          med=round(statistics.median(warm),2)
-          mx=max(warm)
-          print('\nSPEED_SUMMARY cold=',cold,'warm=',warm,'avg=',avg,'median=',med,'max=',mx)
-          print('ALL_V61_SPEED_QUALITY_CHECKS_OK')
+          times=[];outs={}
+          for name,msg in cases:
+              payload={'relation':'썸','nickname':'테스트상대','message':msg,'tone':'차분하고 현실적으로','mode':'detail','advanced':True,'recentMemory':'','images':[]}
+              req=urllib.request.Request(base+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
+              t=time.perf_counter()
+              with urllib.request.urlopen(req,timeout=35) as r:d=json.loads(r.read().decode())
+              sec=round(time.perf_counter()-t,2);times.append(sec);outs[name]=d
+              print('\n===',name,sec,'s ===');print(json.dumps(d,ensure_ascii=False,indent=2))
+              assert d.get('serverVersion')==V
+              assert d.get('confidence') in ['높음','중간','낮음']
+              assert isinstance(d.get('replies'),list)
+              for k in ['meaning','emotion','flow','strategy','caution','advice','nextAction']: assert str(d.get(k,'')).strip(),(name,k)
+              combo=' '.join(str(d.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution','dontSend','advice','nextAction'])
+              replies=' '.join(str(x.get('text','')) for x in d.get('replies',[]) if isinstance(x,dict))
+              assert not any(x in combo for x in ['2~3일','2~3주','최근 2~3일']),(name,'invented_period')
+              assert '[답변]' not in replies and '○○' not in replies,(name,'placeholder')
+          assert outs['confession']['replies']==[]
+          assert outs['risk']['replies']==[] and '관심 신호로 환산하지 않습니다' in ' '.join(map(str,outs['risk'].values()))
+          assert outs['monthly']['replies']==[]
+          assert outs['memory']['replies']==[]
+          dr=' '.join(str(x.get('text','')) for x in outs['date']['replies'] if isinstance(x,dict))
+          assert '저도' not in dr and '자꾸 보고 싶' not in dr and '영화 재미있어요' not in dr
+          print('\nSPEED_SUMMARY',times,'avg',round(statistics.mean(times),2),'median',round(statistics.median(times),2),'max',max(times))
+          print('ALL_V62_SPEED_QUALITY_CHECKS_OK')
           PY
