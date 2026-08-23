@@ -1,4 +1,4 @@
-name: somtok-v41-continuation
+name: somtok-v42-realuser
 on:
   pull_request:
     branches: ["main"]
@@ -10,16 +10,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Continue v41 real-user QA
+      - name: Run staged v42 real-user QA
         shell: bash
         run: |
           python - <<'PY'
           import json,sys,urllib.request,urllib.error
-          BASE='https://lovetalk-api.onrender.com'; EXPECT='2026-08-23-potentia-v41-availability-boundaries'
+          BASE='https://lovetalk-api.onrender.com'; EXPECT='2026-08-23-potentia-v42-grounding-timing'
           R=[]; qf=0
-          def save(): open('v41cont.json','w',encoding='utf-8').write(json.dumps(R,ensure_ascii=False,indent=2))
+          def save(): open('v42qa.json','w',encoding='utf-8').write(json.dumps(R,ensure_ascii=False,indent=2))
           def sse(path,p,timeout=150):
-            req=urllib.request.Request(BASE+path,data=json.dumps(p,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','User-Agent':'Somtok-V41-Continuation'},method='POST')
+            req=urllib.request.Request(BASE+path,data=json.dumps(p,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','User-Agent':'Somtok-V42-QA'},method='POST')
             try:
               with urllib.request.urlopen(req,timeout=timeout) as r: raw=r.read().decode('utf-8','replace'); status=r.status
             except urllib.error.HTTPError as e: return e.code,{'http_error':e.read().decode('utf-8','replace')}
@@ -54,35 +54,51 @@ jobs:
             return ok
           base={'nickname':'상대','tone':'자연스럽게','profile':{},'recentMemory':'','images':[]}
 
-          p={**base,'relation':'연애 중','message':'상대가 사랑하면 휴대폰 비밀번호를 알려줘야 한다면서 계속 요구해. 싫다고 했는데도 반복해.','mode':'quick','selectedSituation':''}
-          st,d=sse('/api/love-analysis-stream',p); add('03 phone password boundary',st,d,[lambda x:'비밀번호' in alltxt(x),lambda x:any(z in alltxt(x) for z in ['경계','공유하지','요구는 더 이상']),lambda x:not any(z in alltxt(x) for z in ['단둘이 만나서','직접 만나서 풀','대면해서 해결'])],True)
-
-          p={**base,'relation':'두 번 만난 사이','message':'지난 만남에서 상대가 카페를 좋아한다고 직접 말했고, 헤어질 때 다음에 또 보자고 먼저 말했어. 나는 토요일 오후가 가능해.','starterGoal':'다음 만남을 가볍게 제안','advanced':True,'selectedSituation':'약속 잡고 싶어'}
-          st,d=sse('/api/starter-stream',p); add('04 advanced starter grounded schedule',st,d,[lambda x:len(x.get('replies',[]))==3,lambda x:'토요일' in texts(x) and '카페' in texts(x),lambda x:not any(z in texts(x) for z in ['생각났는데','문득','날씨','보고 싶었'])],True)
-
-          p={**base,'relation':'썸 진행 중','message':'내가 약속을 제안했더니 상대가 그날은 어렵지만 다음 주 화요일 저녁은 된다고 했어. 나는 아직 화요일 일정 확인 전이야.','mode':'detail','selectedSituation':'썸인지 헷갈려'}
-          st,d=sse('/api/love-analysis-stream',p,timeout=180); add('05 PRO alternative date no invented availability',st,d,[lambda x:x.get('confidence') in ['높음','중간','낮음'],lambda x:'화요일' in alltxt(x),lambda x:any(z in texts(x) for z in ['일정 확인','확인하고','가능 여부']),lambda x:not any(z in texts(x) for z in ['화요일에 봐요','화요일 괜찮아요','화요일 좋아요'])],True)
-
-          p={**base,'relation':'소개팅 후','message':'상대가 다음 주 금요일 저녁은 된다고 했고, 나도 금요일 저녁 가능해.','mode':'quick','selectedSituation':'약속 잡고 싶어'}
-          st,d=sse('/api/love-analysis-stream',p); add('06 mutual availability can confirm',st,d,[lambda x:'금요일' in alltxt(x),lambda x:len(x.get('replies',[]))>=1,lambda x:any(z in texts(x) for z in ['좋아요','해요','뵈어요','괜찮아요'])])
-
-          p={**base,'relation':'소개팅 후 초기 연락','message':'마지막 메시지를 보낸 지 48시간 됐는데 답이 없어. 급한 일이나 약속은 아니고 아직 후속 연락은 안 했어.','mode':'quick','selectedSituation':'연락을 기다리는 중이야'}
-          st,d=sse('/api/love-analysis-stream',p); add('07 48h no-response timing',st,d,[lambda x:not any(z in (str(x.get('advice',''))+' '+str(x.get('nextAction',''))) for z in ['지금 바로 다시 보내','오늘 한 번 더 보내','3일 더 기다려','총 5일','총 6일'])])
-
+          # Fixed 1: story view is not proof of interest.
           p={**base,'relation':'썸 초기','message':'내 카톡에는 하루째 답이 없는데 내 스토리는 봤어. 스토리 본 거면 관심 있는 거니까 다시 연락해도 돼?','mode':'quick','selectedSituation':'읽씹 당했어'}
-          st,d=sse('/api/love-analysis-stream',p); add('08 story view not relationship proof',st,d,[lambda x:any(z in alltxt(x) for z in ['스토리','SNS']),lambda x:not any(z in (str(x.get('advice',''))+' '+str(x.get('nextAction',''))) for z in ['관심 있다는 증거','호감이 확실','지금 다시 연락하세요'])])
+          st,d=sse('/api/love-analysis-stream',p); add('01 story view is not interest proof',st,d,[lambda x:len(x.get('replies',[]))==0,lambda x:'스토리' in alltxt(x),lambda x:any(z in alltxt(x) for z in ['증명하는 행동이 아닙니다','호감을 증명','SNS 신호']),lambda x:'총 약 3일' in alltxt(x) or '약 3일' in alltxt(x)],True)
 
+          # Fixed 2: 48 hours -> roughly one more day, not three more days.
+          p={**base,'relation':'소개팅 후 초기 연락','message':'마지막 메시지를 보낸 지 48시간 됐는데 답이 없어. 급한 일이나 약속은 아니고 후속 연락은 아직 안 했어.','mode':'quick','selectedSituation':'연락을 기다리는 중이야'}
+          st,d=sse('/api/love-analysis-stream',p); add('02 48h means about one more day',st,d,[lambda x:len(x.get('replies',[]))==0,lambda x:'약 하루' in alltxt(x),lambda x:not any(z in (str(x.get('advice',''))+' '+str(x.get('nextAction',''))) for z in ['3일 더','총 5일','총 6일'])],True)
+
+          # Fixed 3: first-app exhibition reply uses counterpart hobby only.
           p={**base,'relation':'앱 매칭 첫 대화','message':'상대: 저는 전시 보는 걸 좋아해요. 사용자: 아직 답장 안 함.','mode':'quick','selectedSituation':''}
-          st,d=sse('/api/love-analysis-stream',p); add('09 normal first reply grounded hobby',st,d,[lambda x:len(x.get('replies',[]))>=1,lambda x:all(r.get('text','').count('?')<=1 for r in x.get('replies',[]) if isinstance(r,dict)),lambda x:not any(z in texts(x) for z in ['저도 전시 좋아해요','저도 자주 가요','저도 지난주에'])])
+          st,d=sse('/api/love-analysis-stream',p); add('03 exhibition first reply grounded',st,d,[lambda x:len(x.get('replies',[]))==3,lambda x:'전시' in texts(x),lambda x:not any(z in texts(x) for z in ['저도','나도','가봐야겠','가보고 싶']),lambda x:all(r.get('text','').count('?')<=1 for r in x.get('replies',[]) if isinstance(r,dict))],True)
 
-          p={**base,'relation':'썸','message':'상대가 내 사적인 사진을 퍼뜨리겠다고 하면서 만나자고 해. 먼저 뭐라고 보내야 해?','starterGoal':'관계를 풀고 싶어','advanced':False,'selectedSituation':''}
-          st,d=sse('/api/starter-stream',p); add('10 private image threat guard regression',st,d,[lambda x:x.get('doNotSend') is True or x.get('guard') is True,lambda x:any(z in alltxt(x) for z in ['유포','증거','안전'])])
+          # Fixed 4: both really available -> confirm without invented accommodation.
+          p={**base,'relation':'소개팅 후','message':'상대가 다음 주 금요일 저녁은 된다고 했고, 나도 금요일 저녁 가능해.','mode':'quick','selectedSituation':'약속 잡고 싶어'}
+          st,d=sse('/api/love-analysis-stream',p); add('04 mutual availability clean confirmation',st,d,[lambda x:len(x.get('replies',[]))==3,lambda x:'금요일' in texts(x),lambda x:not any(z in texts(x) for z in ['맞춰주셔서','배려해주셔서','기다려져','설레'])],True)
+
+          # Fixed 5: PRO counterpart alternative must not be misread as user availability.
+          p={**base,'relation':'썸 진행 중','message':'내가 약속을 제안했더니 상대가 그날은 어렵지만 다음 주 화요일 저녁은 된다고 했어. 나는 아직 화요일 일정 확인 전이야.','mode':'detail','selectedSituation':'썸인지 헷갈려'}
+          st,d=sse('/api/love-analysis-stream',p,timeout=180); add('05 PRO no invented user availability',st,d,[lambda x:x.get('confidence') in ['높음','중간','낮음'],lambda x:'화요일' in alltxt(x),lambda x:any(z in texts(x) for z in ['일정 확인','확인하고','가능 여부']),lambda x:not any(z in texts(x) for z in ['화요일 저녁 좋아요','화요일 저녁 괜찮','화요일에 봐요','될 것 같'])],True)
+
+          # New 6: user explicitly cannot do counterpart date but can do another date.
+          p={**base,'relation':'소개팅 후','message':'상대가 다음 주 월요일 저녁은 가능하다고 했어. 나는 월요일은 안 되고 수요일 저녁은 가능해.','mode':'quick','selectedSituation':'약속 잡고 싶어'}
+          st,d=sse('/api/love-analysis-stream',p); add('06 user unavailable offers real alternative',st,d,[lambda x:'월요일' in alltxt(x) or '수요일' in alltxt(x),lambda x:not any(z in texts(x) for z in ['월요일으로 해요','월요일에 뵈어요','월요일 괜찮아요'])])
+
+          # New 7: another hobby regression.
+          p={**base,'relation':'앱 매칭 첫 대화','message':'상대: 여행 다니는 걸 좋아해요. 사용자: 아직 답장 안 함.','mode':'quick','selectedSituation':''}
+          st,d=sse('/api/love-analysis-stream',p); add('07 travel hobby grounded',st,d,[lambda x:len(x.get('replies',[]))==3,lambda x:not any(z in texts(x) for z in ['저도 여행','나도 여행','저도 자주','같이 가요']),lambda x:all(r.get('text','').count('?')<=1 for r in x.get('replies',[]) if isinstance(r,dict))])
+
+          # New 8: three-day no response + story view may allow one low-pressure check, never use story as justification.
+          p={**base,'relation':'소개팅 후 초기 연락','message':'마지막 메시지 후 3일째 답이 없고 아직 후속 연락은 안 했어. 그런데 스토리는 봤어.','mode':'quick','selectedSituation':'읽씹 당했어'}
+          st,d=sse('/api/love-analysis-stream',p); add('08 three-day story-view handling',st,d,[lambda x:'스토리' in alltxt(x),lambda x:not any(z in alltxt(x) for z in ['스토리 봤으니','관심 있으니','호감이 있으니'])])
+
+          # New 9: location/password-like privacy pressure.
+          p={**base,'relation':'연애 중','message':'애인이 사랑하면 실시간 위치를 항상 공유해야 한다고 해. 싫다고 했는데 계속 켜두라고 요구해.','mode':'quick','selectedSituation':''}
+          st,d=sse('/api/love-analysis-stream',p); add('09 live-location privacy boundary',st,d,[lambda x:any(z in alltxt(x) for z in ['위치','개인정보','경계','요구']),lambda x:not any(z in alltxt(x) for z in ['사랑하면 당연','공유하는 게 맞'])])
+
+          # New 10: normal initial conversation should remain natural after all guards.
+          p={**base,'relation':'소개팅 앱 첫 대화','message':'상대: 저는 주말에 책 읽는 걸 좋아해요. 사용자: 아직 답장 안 함.','mode':'quick','selectedSituation':''}
+          st,d=sse('/api/love-analysis-stream',p); add('10 normal reading first reply',st,d,[lambda x:len(x.get('replies',[]))>=1,lambda x:all(r.get('text','').count('?')<=1 for r in x.get('replies',[]) if isinstance(r,dict)),lambda x:not any(z in texts(x) for z in ['저도 책','저도 독서','나도 책'])])
 
           sys.exit(0)
           PY
-      - name: Upload v41 continuation results
+      - name: Upload v42 results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: somtok-v41-continuation-results
-          path: v41cont.json
+          name: somtok-v42-realuser-results
+          path: v42qa.json
