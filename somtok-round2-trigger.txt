@@ -1,1 +1,1 @@
-Run Somtok v34 targeted retest and fresh real-user cases.
+Run corrected Somtok v34 continuation QA.
