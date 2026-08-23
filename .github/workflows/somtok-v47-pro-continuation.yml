@@ -1,0 +1,71 @@
+name: somtok-v47-pro-continuation
+on:
+  pull_request:
+    branches: ["main"]
+jobs:
+  qa:
+    if: github.event.pull_request.head.ref == 'agent/somtok-v38-realuser-run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Run v47 PRO continuation cases
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,sys,urllib.request,urllib.error
+          BASE='https://lovetalk-api.onrender.com'; EXPECT='2026-08-23-potentia-v47-boundaries-followup-grounding'
+          R=[]
+          def save():open('v47-pro.json','w',encoding='utf-8').write(json.dumps(R,ensure_ascii=False,indent=2))
+          def hard(name,status,d):R.append({'name':name,'pass':False,'type':'structure','status':status,'data':d});save();sys.exit(10)
+          def sse(path,p,timeout=190):
+            req=urllib.request.Request(BASE+path,data=json.dumps(p,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','User-Agent':'Somtok-V47-PRO'},method='POST')
+            try:
+              with urllib.request.urlopen(req,timeout=timeout) as r:raw=r.read().decode('utf-8','replace');status=r.status
+            except urllib.error.HTTPError as e:return e.code,{'http_error':e.read().decode('utf-8','replace')}
+            except Exception as e:return 0,{'transport_error':repr(e)}
+            out={'replies':[],'serverVersion':''}
+            for block in raw.replace('\r\n','\n').split('\n\n'):
+              ev='';data=None
+              for line in block.splitlines():
+                if line.startswith('event:'):ev=line[6:].strip()
+                elif line.startswith('data:'):
+                  try:data=json.loads(line[5:].strip())
+                  except:data=None
+              if not data:continue
+              if ev=='section':
+                n=data.get('name');v=data.get('value')
+                if str(n).startswith('reply'):
+                  if isinstance(v,dict):out['replies'].append(v)
+                else:out[n]=v
+              elif ev=='guard':out.update(data);out['guard']=True
+              elif ev=='done':out['serverVersion']=data.get('serverVersion','')
+              elif ev=='error':out['error']=data
+            return status,out
+          def texts(d):return ' '.join(str(x.get('text','')) for x in d.get('replies',[]) if isinstance(x,dict))
+          def alltxt(d):return ' '.join(str(d.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution','dontSend','advice','nextAction','reason'])+' '+texts(d)
+          def actiontxt(d):return str(d.get('advice',''))+' '+str(d.get('nextAction',''))+' '+texts(d)
+          def add(name,status,d,checks):
+            if status!=200 or d.get('serverVersion')!=EXPECT or any(k in d for k in ['error','http_error','transport_error']):hard(name,status,d)
+            c={k:bool(fn(d)) for k,fn in checks};ok=all(c.values())
+            R.append({'name':name,'pass':ok,'type':'quality','status':status,'checks':c,'data':d});save()
+            if not ok:sys.exit(20)
+          try:
+            with urllib.request.urlopen(urllib.request.Request(BASE+'/api/version',headers={'User-Agent':'Somtok-V47-PRO'}),timeout=30) as r:
+              body=r.read().decode('utf-8','replace')
+              if r.status!=200 or EXPECT not in body:hard('00 version gate',r.status,{'body':body})
+              R.append({'name':'00 version gate','pass':True,'type':'structure','status':r.status,'body':body});save()
+          except Exception as e:hard('00 version gate',0,{'error':repr(e)})
+          base={'nickname':'상대','tone':'자연스럽게','profile':{},'recentMemory':'','images':[]}
+
+          p={**base,'relation':'썸 초기','message':'최근 세 번 답장은 빠르게 왔지만 상대가 먼저 연락한 적은 없어. 질문은 가끔 하나씩 하고, 나는 두 번 먼저 연락했어. 아직 약속 제안은 서로 없었어. 썸인지 상세히 봐줘.','mode':'detail','selectedSituation':'썸인지 헷갈려'}
+          st,d=sse('/api/love-analysis-stream',p);add('01 PRO mixed participation balanced',st,d,[('has_confidence',lambda x:x.get('confidence') in ['높음','중간','낮음']),('mentions_asymmetry',lambda x:any(z in alltxt(x) for z in ['먼저 연락','선연락','사용자','참여'])),('no_confession_push',lambda x:not any(z in actiontxt(x) for z in ['고백하세요','마음을 고백','관계를 확정'])),('no_invented_date',lambda x:not any(z in texts(x) for z in ['이번 주말','토요일','일요일','다음 주'])),('max_one_question',lambda x:all(str(r.get('text','')).count('?')<=1 for r in x.get('replies',[]) if isinstance(r,dict)))])
+
+          p={**base,'relation':'두 번 대화한 사이','message':'상대가 영화를 좋아한다고 직접 말했어. 나는 이번 일요일 오후가 가능해. 그 외에는 상대 취향이나 최근 상황을 몰라.','starterGoal':'가볍게 다음 만남 제안','advanced':True,'selectedSituation':'약속 잡고 싶어'}
+          st,d=sse('/api/starter-stream',p);add('02 PRO advanced starter movie grounded',st,d,[('uses_supplied_facts',lambda x:'영화' in texts(x) and '일요일' in texts(x)),('no_fake_thought',lambda x:not any(z in texts(x) for z in ['생각나서','생각났','문득','떠올라서'])),('no_fake_shared_experience',lambda x:not any(z in texts(x) for z in ['지난번 영화','같이 봤던','저도 영화 좋아'])),('no_fake_weather',lambda x:'날씨' not in texts(x)),('max_one_question',lambda x:all(str(r.get('text','')).count('?')<=1 for r in x.get('replies',[]) if isinstance(r,dict)))])
+          PY
+      - name: Upload v47 PRO results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: somtok-v47-pro-results
+          path: v47-pro.json
