@@ -1,1 +1,1 @@
-Run targeted Somtok v40 continuation QA.
+Run staged Somtok v41 real-user QA.
