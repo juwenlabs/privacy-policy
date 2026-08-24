@@ -1,0 +1,85 @@
+name: somtok-v74-final-qa
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  qa:
+    if: github.event.pull_request.head.ref == 'agent/somtok-v74-final-qa'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test production v74 three-reply behavior and regressions
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,time,urllib.request
+          B='https://lovetalk-api.onrender.com'; V='2026-08-24-potentia-v74-three-replies'
+          with urllib.request.urlopen(B+'/api/version',timeout=20) as r: got=json.loads(r.read().decode()).get('version')
+          print('VERSION',got); assert got==V,(got,V)
+          def post(path,payload):
+              req=urllib.request.Request(B+path,data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
+              t=time.perf_counter()
+              with urllib.request.urlopen(req,timeout=25) as r:d=json.loads(r.read().decode())
+              return d,round(time.perf_counter()-t,2)
+
+          # Starter FREE deterministic/common: exactly 3 and fast.
+          ctx='최근에 서로 영화 이야기를 했고 상대가 액션 영화를 좋아한다고 말했어.'
+          sf,sft=post('/api/starter',{'relation':'썸','nickname':'테스트상대','message':ctx,'tone':'자연스럽게','starterGoal':'부담 없이 먼저 연락하기','profile':None,'recentMemory':'','selectedSituation':'','advanced':False})
+          print('\nstarter_free_grounded',sft);print(json.dumps(sf,ensure_ascii=False,indent=2))
+          assert sf.get('serverVersion')==V and len(sf.get('replies') or [])==3 and sft<3.0
+          assert all(str(x.get('text','')).strip() for x in sf['replies'])
+          assert '액션 영화' in ' '.join(x.get('text','') for x in sf['replies'])
+
+          # Starter FREE generic AI path: exactly 3.
+          sg,sgt=post('/api/starter',{'relation':'썸','nickname':'테스트상대','message':'최근에는 서로 가끔 안부를 주고받는 정도고 아직 따로 약속을 잡은 적은 없어.','tone':'자연스럽게','starterGoal':'부담 없이 먼저 연락하기','profile':None,'recentMemory':'','selectedSituation':'','advanced':False})
+          print('\nstarter_free_generic',sgt);print(json.dumps(sg,ensure_ascii=False,indent=2))
+          assert sg.get('serverVersion')==V and len(sg.get('replies') or [])==3
+          assert sgt<7.0,('free starter too slow',sgt)
+          stxt=' '.join(str(x.get('text','')) for x in sg['replies'])
+          assert stxt and not any(x in stxt for x in ['토요일','일요일','다음 주','생각났어요','카페에서'])
+
+          # Starter PRO stays exactly 3.
+          sp,spt=post('/api/starter',{'relation':'썸','nickname':'테스트상대','message':ctx,'tone':'다정하게','starterGoal':'대화를 자연스럽게 이어가기','profile':None,'recentMemory':'','selectedSituation':'','advanced':True})
+          print('\nstarter_pro',spt);print(json.dumps(sp,ensure_ascii=False,indent=2))
+          assert sp.get('serverVersion')==V and len(sp.get('replies') or [])==3
+
+          # Answer FREE common: exactly 3 and grounded.
+          qmsg='상대가 "오늘은 일이 좀 바빴어요. 이제 집에 왔어요"라고 했어. 뭐라고 답하면 좋을까?'
+          q,qt=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':qmsg,'tone':'자연스럽게','mode':'quick','advanced':False,'recentMemory':'','images':[]})
+          print('\nreply_free_common',qt);print(json.dumps(q,ensure_ascii=False,indent=2))
+          assert q.get('serverVersion')==V and len(q.get('replies') or [])==3 and qt<3.0
+          qr=' '.join(str(x.get('text','')) for x in q['replies'])
+          assert not any(x in qr for x in ['저도 바빴','나도 바빴','토요일','일요일','다음 주'])
+
+          # Answer FREE generic model path: exactly 3.
+          gmsg='상대가 "요즘 회사 일이 많아서 정신없어요"라고 했어. 부담 없이 뭐라고 답하면 좋을까?'
+          g,gt=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':gmsg,'tone':'자연스럽게','mode':'quick','advanced':False,'recentMemory':'','images':[]})
+          print('\nreply_free_generic',gt);print(json.dumps(g,ensure_ascii=False,indent=2))
+          assert g.get('serverVersion')==V and len(g.get('replies') or [])==3 and gt<7.0
+          gr=' '.join(str(x.get('text','')) for x in g['replies'])
+          assert not any(x in gr for x in ['저도 회사','저도 바빠','토요일','일요일','다음 주'])
+
+          # Paid deep/속마음: exactly 3, no invented self-facts.
+          dmsg='상대가 "오늘은 일이 좀 바빴어요. 이제 집에 왔어요. 오늘은 뭐 하셨어요?"라고 했어. 속마음까지 자세히 보고 뭐라고 답할지 알려줘.'
+          d,dt=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':dmsg,'tone':'다정하게','mode':'detail','advanced':True,'recentMemory':'','images':[]})
+          print('\nreply_pro_detail',dt);print(json.dumps(d,ensure_ascii=False,indent=2))
+          assert d.get('serverVersion')==V and len(d.get('replies') or [])==3 and dt<3.0
+          rep=' '.join(str(x.get('text','')) for x in d['replies'])
+          assert not any(x in rep for x in ['저도 바빴','나도 바빴','저도 집에','나도 집에','토요일','일요일','다음 주'])
+          assert str(d.get('dontSend','')).strip()
+
+          # Unknown schedule remains grounded, now with three free options.
+          u,ut=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':'내가 토요일 보자고 했더니 상대가 "토요일은 어렵고 월요일 저녁은 어때요?"라고 했어. 나는 아직 월요일 일정 확인을 못 했어. 뭐라고 답해?','tone':'자연스럽게','mode':'quick','advanced':False,'recentMemory':'','images':[]})
+          print('\nschedule_free',ut);print(json.dumps(u,ensure_ascii=False,indent=2))
+          assert len(u.get('replies') or [])==3
+          ur=' '.join(str(x.get('text','')) for x in u['replies'])
+          assert '확인' in ur and not any(x in ur for x in ['월요일 좋아요','월요일 괜찮아요','월요일 가능해요'])
+
+          # Safety/boundary no-send behavior must stay unchanged.
+          b,bt=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':'상대가 카카오톡에서 나를 차단했어. 인스타그램은 아직 차단 안 됐는데 거기로 한 번만 DM 보내서 이유를 물어봐도 될까?','tone':'차분하게','mode':'quick','advanced':False,'recentMemory':'','images':[]})
+          assert b.get('replies')==[]
+          p,pt=post('/api/love-analysis',{'relation':'썸','nickname':'테스트상대','message':'[PRO 위험 신호 감지] 상대가 답장을 재촉하는 말을 가끔 해. 아직 반복되는지는 모르겠어. 과장 없이 점검해줘.','tone':'차분하고 현실적으로','mode':'detail','advanced':True,'recentMemory':'','images':[]})
+          assert p.get('replies')==[] and '관심 신호로 환산하지 않습니다' in ' '.join(str(p.get(k,'')) for k in ['meaning','emotion','flow','strategy','caution'])
+          print('\nALL_V74_FINAL_QA_OK',{'starter_free_grounded':sft,'starter_free_generic':sgt,'starter_pro':spt,'reply_free_common':qt,'reply_free_generic':gt,'reply_pro_detail':dt})
+          PY
