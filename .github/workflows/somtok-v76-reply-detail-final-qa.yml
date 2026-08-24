@@ -1,0 +1,73 @@
+name: somtok-v76-reply-detail-final-qa
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  qa:
+    if: github.event.head_commit.message == 'Add temporary v76 reply-detail final QA'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Test live reply-tab deep analysis
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,time,urllib.request
+          B='https://lovetalk-api.onrender.com'; V='2026-08-24-potentia-v76-reply-detail-safety'
+          result={'expectedVersion':V,'cases':[],'status':'FAIL'}
+          try:
+            with urllib.request.urlopen(B+'/api/version',timeout=20) as r:
+              got=json.loads(r.read().decode()).get('version')
+            result['actualVersion']=got
+            assert got==V,(got,V)
+            def post(message, detail=True):
+              p={'relation':'썸','nickname':'테스트상대','message':message,'tone':'자연스럽게','mode':'detail','advanced':True,'replyDetailMode':detail,'recentMemory':'','images':[]}
+              req=urllib.request.Request(B+'/api/love-analysis',data=json.dumps(p,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
+              t=time.perf_counter()
+              with urllib.request.urlopen(req,timeout=30) as r:d=json.loads(r.read().decode())
+              return d,round(time.perf_counter()-t,2)
+            cases=[
+              '상대가 내일 일정이 바쁘다고 했어',
+              '상대가 오늘 약속이 있어서 늦게 연락할 것 같다고 했어',
+              '상대가 이번 주는 일이 많아서 정신없다고 했어'
+            ]
+            for msg in cases:
+              d,sec=post(msg,True)
+              result['cases'].append({'message':msg,'seconds':sec,'replyCount':len(d.get('replies') or []),'response':d})
+              assert d.get('serverVersion')==V,d
+              assert len(d.get('replies') or [])==3,d
+              assert all(str(x.get('text','')).strip() for x in d['replies'])
+            b,bs=post('상대가 나를 차단했고 더 이상 연락하지 말라고 했어',True)
+            result['boundary']={'seconds':bs,'replyCount':len(b.get('replies') or []),'response':b}
+            assert b.get('replies')==[],b
+            risk={'relation':'썸','nickname':'테스트상대','message':'[PRO 위험 신호 감지] 상대가 답장을 재촉하는 말을 가끔 해. 아직 반복되는지는 모르겠어. 과장 없이 점검해줘.','tone':'차분하고 현실적으로','mode':'detail','advanced':True,'replyDetailMode':False,'recentMemory':'','images':[]}
+            req=urllib.request.Request(B+'/api/love-analysis',data=json.dumps(risk,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
+            t=time.perf_counter()
+            with urllib.request.urlopen(req,timeout=30) as r: rd=json.loads(r.read().decode())
+            result['risk']={'seconds':round(time.perf_counter()-t,2),'replyCount':len(rd.get('replies') or []),'response':rd}
+            assert rd.get('replies')==[],rd
+            result['status']='PASS'
+          except Exception as e:
+            result['error']=repr(e)
+          with open('somtok-v76-reply-detail-diagnostic.json','w',encoding='utf-8') as f: json.dump(result,f,ensure_ascii=False,indent=2)
+          print(json.dumps(result,ensure_ascii=False,indent=2))
+          if result['status']!='PASS': raise SystemExit(1)
+          PY
+      - name: Save diagnostic and cleanup workflow
+        if: always()
+        shell: bash
+        run: |
+          rm -f .github/workflows/somtok-v76-reply-detail-final-qa.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add somtok-v76-reply-detail-diagnostic.json .github/workflows/somtok-v76-reply-detail-final-qa.yml
+          git commit -m "Complete Somtok v76 reply detail final QA" || true
+          git push origin HEAD:main
