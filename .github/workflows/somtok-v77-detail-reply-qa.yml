@@ -1,0 +1,71 @@
+name: somtok-v77-detail-reply-qa
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  qa:
+    if: github.event.head_commit.message == 'Add temporary Somtok v77 detail reply QA'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Verify reply-tab detail summary returns 3 replies
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,time,urllib.request
+          B='https://lovetalk-api.onrender.com'
+          V='2026-08-24-potentia-v74-three-replies'
+          with urllib.request.urlopen(B+'/api/version',timeout=20) as r:
+              got=json.loads(r.read().decode()).get('version')
+          print('VERSION',got); assert got==V,(got,V)
+          def post(payload):
+              req=urllib.request.Request(B+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
+              t=time.perf_counter()
+              with urllib.request.urlopen(req,timeout=25) as r:d=json.loads(r.read().decode())
+              return d,round(time.perf_counter()-t,2)
+          # This mirrors the frontend v77 detail payload: a harmless trailing newline
+          # distinguishes reply-tab detail analysis from analysis-only PRO summaries.
+          p={
+            'relation':'썸','nickname':'테스트상대',
+            'message':'상대가 내일 일정이 바쁘다고 했어\n',
+            'tone':'자연스럽게','mode':'detail','advanced':True,
+            'replyDetailMode':True,'recentMemory':'','images':[]
+          }
+          d,sec=post(p)
+          print('SUMMARY_DETAIL_SECONDS',sec)
+          print(json.dumps(d,ensure_ascii=False,indent=2))
+          assert d.get('serverVersion')==V
+          assert len(d.get('replies') or [])==3, d
+          assert all(str(x.get('text','')).strip() for x in d['replies'])
+          # A second plain-language summary, also without quote/colon formatting.
+          p2={**p,'message':'상대가 오늘 약속이 있어서 늦게 연락할 것 같다고 했어\n'}
+          d2,sec2=post(p2)
+          print('SUMMARY_DETAIL_2_SECONDS',sec2)
+          print(json.dumps(d2,ensure_ascii=False,indent=2))
+          assert len(d2.get('replies') or [])==3, d2
+          # Safety/boundary no-send must still win even with the reply-detail marker.
+          p3={**p,'message':'상대가 나를 차단했고 더 이상 연락하지 말라고 했어\n'}
+          d3,sec3=post(p3)
+          print('BOUNDARY_SECONDS',sec3)
+          print(json.dumps(d3,ensure_ascii=False,indent=2))
+          assert d3.get('replies')==[], d3
+          print('ALL_V77_DETAIL_REPLY_QA_OK',{'summary1':sec,'summary2':sec2,'boundary':sec3})
+          PY
+      - name: Remove temporary QA workflow
+        if: always()
+        shell: bash
+        run: |
+          rm -f .github/workflows/somtok-v77-detail-reply-qa.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/somtok-v77-detail-reply-qa.yml
+          git commit -m "Remove temporary Somtok v77 detail reply QA" || true
+          git push origin HEAD:main
