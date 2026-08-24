@@ -1,0 +1,60 @@
+name: somtok-v74-stream-qa
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  qa:
+    if: github.event.pull_request.head.ref == 'agent/somtok-v74-stream-qa'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify detail SSE and JSON fallback both return three replies
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, urllib.request, time
+          B='https://lovetalk-api.onrender.com'
+          V='2026-08-24-potentia-v74-three-replies'
+          payload={
+            'relation':'썸','nickname':'테스트상대',
+            'message':'상대가 "오늘은 일이 좀 바빴어요. 이제 집에 왔어요. 오늘은 뭐 하셨어요?"라고 했어. 속마음까지 자세히 보고 뭐라고 답할지 알려줘.',
+            'tone':'다정하게','mode':'detail','advanced':True,'recentMemory':'','images':[]
+          }
+          with urllib.request.urlopen(B+'/api/version',timeout=20) as r:
+              got=json.loads(r.read().decode()).get('version')
+          print('VERSION',got); assert got==V,(got,V)
+
+          # JSON fallback endpoint
+          req=urllib.request.Request(B+'/api/love-analysis',data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json'},method='POST')
+          t=time.perf_counter()
+          with urllib.request.urlopen(req,timeout=25) as r:
+              d=json.loads(r.read().decode())
+          print('JSON_SECONDS',round(time.perf_counter()-t,2))
+          print(json.dumps(d,ensure_ascii=False,indent=2))
+          assert d.get('serverVersion')==V
+          assert len(d.get('replies') or [])==3
+          assert all(str(x.get('text','')).strip() for x in d['replies'])
+
+          # SSE endpoint: verify reply1, reply2, reply3 are actually emitted.
+          req=urllib.request.Request(B+'/api/love-analysis-stream',data=json.dumps(payload,ensure_ascii=False).encode(),headers={'Content-Type':'application/json','Accept':'text/event-stream'},method='POST')
+          t=time.perf_counter()
+          with urllib.request.urlopen(req,timeout=25) as r:
+              raw=r.read().decode('utf-8','replace')
+          print('SSE_SECONDS',round(time.perf_counter()-t,2))
+          print(raw[:12000])
+          sections=[]
+          event=None
+          for block in raw.replace('\r\n','\n').split('\n\n'):
+              if not block or block.startswith(':'): continue
+              ev='message'; data_lines=[]
+              for line in block.split('\n'):
+                  if line.startswith('event:'): ev=line[6:].strip()
+                  elif line.startswith('data:'): data_lines.append(line[5:].lstrip())
+              if ev=='section' and data_lines:
+                  obj=json.loads('\n'.join(data_lines)); sections.append(obj.get('name'))
+          print('SECTIONS',sections)
+          for name in ['meaning','strategy','reply1','reply2','reply3']:
+              assert name in sections,(name,sections)
+          print('ALL_DETAIL_STREAM_AND_JSON_QA_OK')
+          PY
